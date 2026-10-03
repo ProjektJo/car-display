@@ -1,0 +1,8 @@
+# Partitionstabelle Car-Display v2, 16 MB Flash (M, Software-Stack)
+# App ca. 6 MB (keine OTA-Updates, Updates per USB), LittleFS 4 MB für Fahrten, Tankfüllungen, Profile.
+# NVS (Einstellungen) 92 kB. ANNAHME: Der Rest (ca. 5,8 MB) bleibt frei als Reserve und wird nicht
+# als NVS angelegt, weil NVS je Flash-Seite RAM belegt (bei 5,8 MB wären das über 100 kB).
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   0x17000
+app0,     app,  factory,  0x20000,  0x600000
+spiffs,   data, spiffs,   0x620000, 0x400000
