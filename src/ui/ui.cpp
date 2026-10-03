@@ -150,6 +150,10 @@ void handleSwipe() {
 }  // namespace
 
 void task(void*) {
+  // LVGL holt seine 256 kB aus dem PSRAM (lv_conf.h); ohne PSRAM stürzt lv_init ab
+  if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < LV_MEM_SIZE) {
+    Serial.println("FEHLER: zu wenig PSRAM für LVGL. memory_type qio_opi in platformio.ini prüfen.");
+  }
   lv_init();
   lv_tick_set_cb(tickCb);
   lv_log_register_print_cb(logCb);
