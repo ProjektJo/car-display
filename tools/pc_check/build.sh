@@ -12,7 +12,7 @@ if [ ! -f $O/liblvgl.a ]; then
   find $LV/src -name '*.c' | xargs -P 16 -I{} sh -c 'f={}; o='$O'/lv/$(echo $f | md5sum | cut -c1-12).o; gcc -c '"$COMMON"' -w $f -o $o'
   ar rcs $O/liblvgl.a $O/lv/*.o
 fi
-FW_CPP="$P/src/ui/ui.cpp $P/src/ui/theme.cpp $P/src/ui/statusbar.cpp $P/src/ui/overlay.cpp $P/src/ui/menu.cpp $P/src/ui/start_screen.cpp $P/src/ui/vehicle_dialog.cpp $P/src/util/link_text.cpp $(ls $P/src/ui/pages/*.cpp) $P/src/hw/display.cpp $P/src/hw/touch.cpp $P/src/core/car_state_store.cpp $P/src/core/commands.cpp $P/src/core/calc_task.cpp $P/src/util/format.cpp $P/src/sim/simulator.cpp $(ls $P/src/calc/*.cpp) $(ls $P/src/storage/*.cpp)"
+FW_CPP="$P/src/ui/ui.cpp $P/src/ui/theme.cpp $P/src/ui/values.cpp $P/src/ui/history.cpp $P/src/ui/linechart.cpp $P/src/ui/range_bar.cpp $P/src/ui/tank_dialog.cpp $P/src/ui/ui_prefs.cpp $P/src/ui/eco_popups.cpp $P/src/ui/live.cpp $P/src/ui/statusbar.cpp $P/src/ui/overlay.cpp $P/src/ui/menu.cpp $P/src/ui/start_screen.cpp $P/src/ui/vehicle_dialog.cpp $P/src/util/link_text.cpp $(ls $P/src/ui/pages/*.cpp) $P/src/hw/display.cpp $P/src/hw/touch.cpp $P/src/core/car_state_store.cpp $P/src/core/commands.cpp $P/src/core/calc_task.cpp $P/src/util/format.cpp $P/src/sim/simulator.cpp $(ls $P/src/calc/*.cpp) $(ls $P/src/storage/*.cpp)"
 EXTRA="${EXTRA_DEFS:-}"
 rm -f $O/fw/*.o
 for f in $FW_CPP $H/harness.cpp; do

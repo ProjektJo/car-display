@@ -43,11 +43,19 @@ void setState(LinkState st) {
   });
 }
 
-// Befehle der UI abholen. Bis Etappe 6 (Sprintmessung) gibt es für obdTask noch keine.
+// Befehle der UI abholen (zurzeit keine für obdTask) und den Sprint-Takt übernehmen: Während einer
+// Sprintmessung fragt der Scheduler nur Tempo, Drehzahl und Gaspedal (A10)
 void drainCommands() {
   Command c;
   while (commands::fromObd(c, 0)) {
   }
+  bool sprint = false;
+  {
+    CarState& s = carstate::lock();
+    sprint = s.sprint.active;
+    carstate::unlock();
+  }
+  scheduler.setSprint(sprint);
 }
 
 // Fehler anzeigen und mit wachsender Pause auf den nächsten Versuch warten (A7)

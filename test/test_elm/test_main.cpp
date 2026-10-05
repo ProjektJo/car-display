@@ -164,3 +164,5 @@ int main() {
   RUN_TEST(test_voltage_and_protocol);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

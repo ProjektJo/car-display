@@ -11,6 +11,8 @@ LV_FONT_DECLARE(font_m20)  // Kachelwert
 LV_FONT_DECLARE(font_m28)  // Seitenwert
 LV_FONT_DECLARE(font_m48)  // groß
 LV_FONT_DECLARE(font_d72)  // Großanzeige, nur Ziffern , . - / : und –
+// Kleine Schrift 10 px (LVGL-Montserrat, nur ASCII); fehlende Zeichen (Umlaute, Symbole) aus font_m12
+extern lv_font_t font_small;
 
 namespace theme {
 

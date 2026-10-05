@@ -7,10 +7,14 @@
 #include <cstring>
 
 #include "calc/averages.h"
+#include "calc/eco.h"
+#include "calc/perf.h"
 #include "calc/trip.h"
 
 constexpr uint32_t PERSIST_MAGIC = 0x33534443;  // "CDS3"
-constexpr uint16_t PERSIST_VERSION = 1;
+// Version 2 (Etappe 4): Gang-Histogramm, Leerlaufverbrauch, letzte Fahrt, Eco-Summen der Fahrt
+// Version 3 (Etappe 6): beste Sprintzeiten und -kurve, Vmax und Spitzenleistung der Fahrt
+constexpr uint16_t PERSIST_VERSION = 3;
 
 struct PersistState {
   uint32_t magic;
@@ -45,6 +49,13 @@ struct PersistState {
   trip::TripState trip;
   uint16_t lastTripNumber;
   uint16_t lastFillNumber;
+
+  eco::GearHistogram gearHist; // k-Werte stabiler Phasen (A6 Gänge lernen)
+  float idleLph;               // gelernter Leerlaufverbrauch warm (Schub gespart, A9), NAN = noch nicht
+  uint8_t hasLastTrip;         // 1 = lastTrip gültig (Start-Karte)
+  uint8_t reserved2[3];
+  trip::TripRecord lastTrip;   // zuletzt beendete Fahrt
+  perf::Best sprintBest;       // beste Zeiten 0–50, 0–100, 80–120 und Kurve 0–100 (A10)
 
   float spare[8];
   uint32_t crc;                // CRC-32 über alles davor

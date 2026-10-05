@@ -59,3 +59,5 @@ int main() {
   RUN_TEST(test_small_buffer_is_cut_safely);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

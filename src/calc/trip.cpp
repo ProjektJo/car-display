@@ -11,6 +11,7 @@ void start(TripState& t, uint16_t number) {
   t.active = 1;
   t.number = number;
   t.maxCoolantC = NAN;
+  t.ecoScore = NAN;
 }
 
 TripRecord toRecord(const TripState& t, uint8_t profileId) {
@@ -23,8 +24,8 @@ TripRecord toRecord(const TripState& t, uint8_t profileId) {
   r.durationS = static_cast<float>(t.durationS);
   r.idleS = static_cast<float>(t.idleS);
   r.cutS = static_cast<float>(t.cutS);
-  r.brakedL = NAN;
-  r.ecoScore = NAN;
+  r.brakedL = t.brakedL;
+  r.ecoScore = t.ecoScore;
   r.maxRpm = t.maxRpm;
   r.maxCoolantC = t.maxCoolantC;
   r.cost = t.costKnown ? static_cast<float>(t.cost) : NAN;

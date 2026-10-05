@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include "calc/perf.h"
+#include "calc/trip.h"
 #include "config.h"
 
 // Ein Messwert mit Zeitstempel. Ohne gültige, aktuelle Messung liefert get() NAN,
@@ -85,6 +87,24 @@ struct ProfileInfo {
   bool diesel = false;
   float fuelCal = NAN;
   float tankL = NAN;
+  uint16_t coldRpmLimit = cfg::DEFAULT_COLD_RPM_LIMIT;  // Kalter Motor (A9)
+  uint8_t coldCoolantC = cfg::DEFAULT_COLD_COOLANT_C;
+  uint16_t powerKw = 55;            // Skala des Leistungsbalkens (A10)
+  uint16_t redlineRpm = cfg::DEFAULT_REDLINE_RPM;
+};
+
+// Sprintmessung (A10) für Sport- und Sprint-Seite
+struct SprintInfo {
+  perf::State state = perf::State::Ready;
+  bool active = false;          // Messung aktiv: Scheduler nur Tempo, Drehzahl, Gas
+  bool run80 = false;
+  float elapsed = NAN;          // laufende Zeit 0–100 s
+  uint32_t doneAtMs = 0;
+  uint16_t launchSeq = 0;       // Sprint erkannt (Auto-Sprint)
+  float last50 = NAN, last100 = NAN, last80120 = NAN;
+  float best50 = NAN, best100 = NAN, best80120 = NAN;
+  perf::Trace lastTrace = {};
+  perf::Trace bestTrace = {};
 };
 
 struct CarState {
@@ -129,6 +149,32 @@ struct CarState {
   Val tripL{NAN, 0, cfg::PID_PERIOD_FAST_MS};
   Val tripCost{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Euro mit Mischpreis
   Val mixPrice{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Ø-Preis im Tank €/l
+  Val pumpPrice{NAN, 0, cfg::PID_PERIOD_FAST_MS};      // zuletzt eingegebener Zapfsäulenpreis
+  Val tripDurationS{NAN, 0, cfg::PID_PERIOD_FAST_MS};
+  Val tripIdleS{NAN, 0, cfg::PID_PERIOD_FAST_MS};
+  Val fillKm{NAN, 0, cfg::PID_PERIOD_FAST_MS};         // gefahren seit dem Tanken
+  Val fillL{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // verbraucht seit dem Tanken
+  Val sinceFullL{NAN, 0, cfg::PID_PERIOD_FAST_MS};     // berechnet seit der letzten Vollbetankung
+  uint16_t refuelSeq = 0;                               // automatische Tankerkennung: zählt hoch
+  float refuelL = NAN;                                  // erkannte Liter
+
+  // --- Eco (calcTask, A6/A9) ---
+  int8_t gear = -1;                                     // Anzeige-Nummer, 0 = "N", -1 = "–"
+  bool shiftAdvice = false;                             // Hochschalten empfohlen (Pfeil nach 1 s)
+  Val accel{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // m/s², gefiltert
+  Val pedalUsed{NAN, 0, cfg::PID_PERIOD_FAST_MS};      // Gaspedal, ersatzweise Drosselklappe %
+  Val ecoScore{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // laufende Fahrt
+  Val cutSavedL{NAN, 0, cfg::PID_PERIOD_FAST_MS};      // Schub gespart
+  Val brakedL{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // Gebremst
+  Val goalL100{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Spar-Ziel (Menü, Etappe 7), NAN = aus
+  uint16_t gearCheckSeq = 0;                            // zählt hoch, wenn die Fahrzeug-Prüfung fragen soll
+  bool hasLastTrip = false;                             // Start-Karte (Z 12)
+  // --- Sport und Sprint (A10) ---
+  Val powerKw{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // geschätzte Leistung am Rad
+  Val tripVmax{NAN, 0, cfg::PID_PERIOD_FAST_MS};
+  Val tripKwPeak{NAN, 0, cfg::PID_PERIOD_FAST_MS};
+  SprintInfo sprint;
+  trip::TripRecord lastTrip = {};
 
   // --- Optionale Sensoren (Etappe 8) ---
   bool hasImu = false;

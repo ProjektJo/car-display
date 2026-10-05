@@ -54,3 +54,5 @@ int main() {
   RUN_TEST(test_tap_is_not_moved);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

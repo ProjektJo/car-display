@@ -21,11 +21,22 @@ struct TripState {
   float maxRpm;
   float maxCoolantC;
   uint8_t costKnown;     // 0 = noch nie ein Preis eingegeben
+  // Eco-Score und Bremsenergie (A9)
+  double moveS;          // Fahrzeit in Bewegung
+  double rollS;          // davon Schub oder Segeln ohne Verzögerung
+  double pedalAbs;       // Summe der Änderungen des geglätteten Pedals in %
+  double shiftOpenS;     // Zeit mit offener Schaltempfehlung
+  double brakeJ;         // durch Bremsen vernichtete Energie
+  float brakedL;         // brakeJ in Litern (für den Datensatz)
+  float ecoScore;        // laufender Eco-Score, NAN ohne Fahrzeit
+  // Sprint-Seite (A10): Fahrtwerte
+  float vMax;            // km/h
+  float kwPeak;          // geschätzte Spitzenleistung kW
 };
 
 void start(TripState& t, uint16_t number);
 
-// Fahrtdatensatz im Fahrtenbuch (A8: ca. 64 Byte). Gebremst und Eco-Score kommen mit Etappe 4.
+// Fahrtdatensatz im Fahrtenbuch (A8: ca. 64 Byte)
 struct TripRecord {
   uint16_t number;
   uint8_t profileId;
@@ -36,8 +47,8 @@ struct TripRecord {
   float durationS;
   float idleS;
   float cutS;
-  float brakedL;         // NAN bis Etappe 4
-  float ecoScore;        // NAN bis Etappe 4
+  float brakedL;         // Gebremst in Liter (A9)
+  float ecoScore;        // Eco-Score 0–100, NAN ohne Fahrzeit
   float maxRpm;
   float maxCoolantC;
   float cost;            // NAN ohne Preis

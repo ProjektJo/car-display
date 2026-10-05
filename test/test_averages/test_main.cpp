@@ -70,3 +70,5 @@ int main() {
   RUN_TEST(test_fill_history);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

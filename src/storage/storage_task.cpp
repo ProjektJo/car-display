@@ -22,13 +22,14 @@ namespace {
 constexpr uint32_t LOOP_MS = 50;
 constexpr uint8_t QUEUE_LEN = 8;
 
-enum class MsgType : uint8_t { SaveProfile, AppendTrip, AppendFill, Choose, Dismiss, Create };
+enum class MsgType : uint8_t { SaveProfile, AppendTrip, AppendFill, Choose, Dismiss, Create, SaveUi };
 struct Msg {
   MsgType type;
   uint8_t id;
   Profile profile;
   trip::TripRecord trip;
   trip::FillRecord fill;
+  UiSettings ui;
 };
 
 QueueHandle_t queue = nullptr;
@@ -141,6 +142,10 @@ bool activate(uint8_t id) {
     s.profile.diesel = p.fuel == FuelType::Diesel;
     s.profile.fuelCal = p.fuelCal;
     s.profile.tankL = p.tankL;
+    s.profile.coldRpmLimit = p.coldRpmLimit;
+    s.profile.coldCoolantC = p.coldCoolantC;
+    s.profile.powerKw = p.powerKw;
+    s.profile.redlineRpm = p.redlineRpm;
     snprintf(s.link.vehicle, sizeof(s.link.vehicle), "%s", p.name);
   });
   return true;
@@ -213,6 +218,8 @@ void handle(const Msg& m) {
       static Profile p;
       if (!store::loadProfile(m.profile.id, p)) p = m.profile;
       p.fuelCal = m.profile.fuelCal;
+      p.gearCount = m.profile.gearCount;  // Gänge lernt calcTask selbst (A6)
+      memcpy(p.gears, m.profile.gears, sizeof(p.gears));
       if (store::saveProfile(p)) refreshList();
       carstate::modify([&](CarState& s) {
         if (s.profile.id == p.id) s.profile.fuelCal = p.fuelCal;
@@ -258,6 +265,9 @@ void handle(const Msg& m) {
       setAsking(false);
       break;
     }
+    case MsgType::SaveUi:
+      store::saveUi(m.ui);
+      break;
     case MsgType::Create: {
       const uint8_t id = create(m.profile);
       if (id) {
@@ -332,6 +342,13 @@ void createProfile(const Profile& p) {
   static Msg m;  // nur von uiTask aufgerufen
   m.type = MsgType::Create;
   m.profile = p;
+  send(m);
+}
+
+void saveUi(const UiSettings& ui) {
+  static Msg m;  // nur von uiTask aufgerufen
+  m.type = MsgType::SaveUi;
+  m.ui = ui;
   send(m);
 }
 

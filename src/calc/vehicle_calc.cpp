@@ -20,6 +20,11 @@ void initPersist(PersistState& st, uint8_t profileId) {
   st.levelAtStopPct = NAN;
   st.coolantLastC = NAN;
   st.trip.maxCoolantC = NAN;
+  st.trip.ecoScore = NAN;
+  st.gearHist.clear();
+  st.idleLph = NAN;
+  st.hasLastTrip = 0;
+  st.sprintBest.clear();
 }
 
 void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t nowMs) {
@@ -45,6 +50,19 @@ void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t now
   litersAtSave_ = st_.totalL;
   levelSmooth_ = NAN;
   for (int i = 0; i < WIN; i++) winDt_[i] = 0;
+  pedalClosed_ = NAN;
+  pedalSmooth_ = NAN;
+  speedT_ = 0;
+  speedPrev_ = NAN;
+  accel_ = NAN;
+  stable_.reset();
+  check_.reset();
+  learnPaused_ = false;
+  lastGearSearchMs_ = nowMs;
+  engineWasOn_ = false;
+  detectDone_ = true;
+  sprint_.reset();
+  sprint_.setBest(st_.sprintBest);
 }
 
 // Beim Start entscheiden, ob die gespeicherte Fahrt weiterläuft (A8 Fahrt-Ende ohne Uhr).
@@ -63,6 +81,8 @@ void VehicleCalc::finishTrip() {
   if (st_.trip.active && st_.trip.km >= cfg::TRIP_MIN_RECORD_KM) {
     tripRecord_ = trip::toRecord(st_.trip, profile_.id);
     hasTripRecord_ = true;
+    st_.lastTrip = tripRecord_;  // Start-Karte beim nächsten Einschalten
+    st_.hasLastTrip = 1;
   }
   st_.trip.active = 0;
   saveNow_ = true;
@@ -71,6 +91,211 @@ void VehicleCalc::finishTrip() {
 void VehicleCalc::endTrip() {
   if (!active_) return;
   finishTrip();
+}
+
+// Automatische Tankerkennung mit 0x2F (A7): beim Motorstart 10 s im Stand mitteln und mit dem Füllstand
+// vom letzten Abstellen vergleichen. Während der Motor läuft, merkt sich die Firmware den geglätteten Füllstand.
+void VehicleCalc::stepRefuelDetect(const CarState& s, uint32_t nowMs, bool engineOn) {
+  const bool has2F = s.link.pidSupported(0x2F);
+  const float level = s.fuelLevel.get(nowMs);
+  const float speed = s.speed.get(nowMs);
+  if (engineOn && !engineWasOn_) {  // Motor springt an
+    detectSince_ = nowMs ? nowMs : 1;
+    detectDone_ = !has2F || std::isnan(st_.levelAtStopPct);
+    detectSum_ = 0;
+    detectN_ = 0;
+  }
+  engineWasOn_ = engineOn;
+  if (!engineOn || !has2F) return;
+  if (!detectDone_) {
+    // nur im Stand mitteln (die Anzeige schwappt beim Fahren); losgefahren = mit dem bisherigen Mittel entscheiden
+    const bool standing = !std::isnan(speed) && speed < 1.0f;
+    if (standing && !std::isnan(level)) {
+      detectSum_ += level;
+      detectN_++;
+    }
+    if (nowMs - detectSince_ >= cfg::REFUEL_AVG_MS || !standing) {
+      detectDone_ = true;
+      if (detectN_ > 0) {
+        const float avgLevel = static_cast<float>(detectSum_ / detectN_);
+        const float rise = avgLevel - st_.levelAtStopPct;
+        if (rise >= cfg::REFUEL_MIN_RISE_PCT) {
+          float liters = rise / 100.0f * profile_.tankL;
+          // fast voll: berechnete Liter seit der letzten Vollbetankung sind genauer (A7)
+          if (avgLevel > cfg::REFUEL_FULL_PCT && st_.hadFullFill && st_.calComputedL > 0)
+            liters = static_cast<float>(st_.calComputedL);
+          out_.refuelL = liters;
+          out_.refuelSeq++;
+        }
+        st_.levelAtStopPct = avgLevel;
+        levelSmooth_ = avgLevel;
+      }
+    }
+    return;
+  }
+  // Beim Fahren den geglätteten Füllstand als "beim Abstellen" merken
+  if (!std::isnan(levelSmooth_)) st_.levelAtStopPct = levelSmooth_;
+}
+
+void VehicleCalc::relearnGears() {
+  if (!active_) return;
+  st_.gearHist.clear();
+  profile_.gearCount = 0;
+  for (float& g : profile_.gears) g = 0;
+  profileChanged_ = true;
+  learnPaused_ = false;
+  out_.gearMismatch = false;
+  check_.reset();
+  saveNow_ = true;
+}
+
+void VehicleCalc::dismissGearCheck() {
+  learnPaused_ = false;
+  out_.gearMismatch = false;
+}
+
+// Gänge aus dem Histogramm ins Profil übernehmen (A6). Ein Datenblatt-Eintrag mit mehr Gängen bleibt,
+// bis das Lernen mindestens genauso viele Gänge gefunden hat.
+void VehicleCalc::updateGears(uint32_t nowMs) {
+  if (learnPaused_ || nowMs - lastGearSearchMs_ < cfg::GEAR_RECHECK_MS) return;
+  lastGearSearchMs_ = nowMs;
+  if (st_.gearHist.total < cfg::GEAR_LEARN_MIN_TOTAL) return;
+  float found[MAX_GEARS];
+  const int n = eco::findGears(st_.gearHist, found, MAX_GEARS);
+  if (n < 2 || n < profile_.gearCount) return;
+  bool same = n == profile_.gearCount;
+  for (int i = 0; same && i < n; i++) same = std::fabs(found[i] / profile_.gears[i] - 1.0f) < 0.02f;
+  if (same) return;
+  for (int i = 0; i < MAX_GEARS; i++) profile_.gears[i] = i < n ? found[i] : 0.0f;
+  profile_.gearCount = static_cast<uint8_t>(n);
+  profileChanged_ = true;
+}
+
+// Gang, Schaltempfehlung, Lernen, Fahrzeug-Prüfung, Eco-Score, Bremsenergie, Schub gespart (A6, A9)
+void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool engineOn, bool cut, float lph) {
+  const float speed = s.speed.get(nowMs);
+  const float rpm = s.rpm.get(nowMs);
+
+  // Gaspedal, ersatzweise Drosselklappe (A7); "geschlossen" relativ zum kleinsten Wert
+  float pedal = s.pedal.get(nowMs);
+  if (std::isnan(pedal)) pedal = s.throttle.get(nowMs);
+  if (engineOn && !std::isnan(pedal) && (std::isnan(pedalClosed_) || pedal < pedalClosed_)) pedalClosed_ = pedal;
+  const bool pedalClosed = std::isnan(pedal) || (!std::isnan(pedalClosed_) && pedal <= pedalClosed_ + cfg::PEDAL_CLOSED_MARGIN_PCT);
+  out_.pedalPct = pedal;
+
+  // Beschleunigung aus zwei Tempo-Messungen, gefiltert
+  if (std::isnan(speed)) {
+    accel_ = NAN;
+    speedPrev_ = NAN;
+  } else if (s.speed.t != speedT_) {
+    const float dtSample = (s.speed.t - speedT_) / 1000.0f;
+    if (!std::isnan(speedPrev_) && dtSample > 0 && dtSample < 2.0f) {
+      const float a = (speed - speedPrev_) / 3.6f / dtSample;
+      const float k = dtSample / (cfg::ACCEL_SMOOTH_TAU_S + dtSample);
+      accel_ = std::isnan(accel_) ? a : accel_ + k * (a - accel_);
+    }
+    speedPrev_ = speed;
+    speedT_ = s.speed.t;
+    // Sprintmessung mit jeder neuen Tempo-Messung (A10)
+    sprint_.update(s.speed.t, speed, pedal, rpm);
+    if (sprint_.takeBestChanged()) {
+      st_.sprintBest = sprint_.best();
+      saveNow_ = true;
+    }
+  }
+  out_.accelMs2 = accel_;
+  // Geschätzte Leistung am Rad (A10): (m·a + Luft + Rollen) · v
+  {
+    const cfg::BodyType& b = profile_.bodyType();
+    const float p = std::isnan(speed) ? NAN : eco::wheelPowerW(b.massKg, b.cwA, speed / 3.6f, accel_);
+    out_.powerKw = std::isnan(p) ? NAN : (p > 0 ? p / 1000.0f : 0.0f);
+  }
+
+  // Gang
+  int idx = -1;
+  out_.gear = eco::displayGear(profile_.gears, profile_.gearCount, speed, rpm, idx);
+
+  // Lernen aus stabilen Phasen (A6) und Fahrzeug-Prüfung
+  const float k = eco::ratioK(speed, rpm);
+  const bool learnable = engineOn && !std::isnan(k) && speed > cfg::GEAR_LEARN_MIN_KMH && rpm > cfg::GEAR_LEARN_MIN_RPM &&
+                         !pedalClosed && !cut;
+  if (learnable && stable_.add(k, nowMs)) {
+    if (!learnPaused_) st_.gearHist.add(k);
+    if (profile_.gearCount > 0 && !checkAsked_) {
+      check_.add(eco::matchGear(profile_.gears, profile_.gearCount, k) >= 0, dtS);
+      if (check_.mismatch()) {
+        checkAsked_ = true;
+        learnPaused_ = true;
+        out_.gearMismatch = true;
+      }
+    }
+  } else if (!learnable) {
+    stable_.reset();
+  }
+  updateGears(nowMs);
+
+  // Schaltempfehlung (A9)
+  const float nextMin = profile_.fuel == FuelType::Diesel ? cfg::SHIFT_NEXT_MIN_RPM_DIESEL : cfg::SHIFT_NEXT_MIN_RPM_PETROL;
+  out_.shiftAdvice = engineOn && !std::isnan(speed) && speed >= cfg::MOVING_MIN_KMH &&
+                     eco::shiftAdvice(rpm, pedal, pedalClosed, cut, profile_.gears, profile_.gearCount, idx,
+                                      profile_.shiftRpm, nextMin);
+
+  // Leerlaufverbrauch lernen: warm, im Stand, kein Schub (Schub gespart, A9)
+  const float coolant = s.coolant.get(nowMs);
+  if (engineOn && !cut && !std::isnan(lph) && lph > 0 && !std::isnan(speed) && speed < 1.0f && !std::isnan(coolant) &&
+      coolant >= cfg::IDLE_LEARN_MIN_COOLANT_C) {
+    const float a = dtS / cfg::IDLE_LEARN_TAU_S;
+    st_.idleLph = std::isnan(st_.idleLph) ? lph : st_.idleLph + (a > 1 ? 1 : a) * (lph - st_.idleLph);
+  }
+
+  // Geglättetes Pedal (ruhiges Gas)
+  float pedalDelta = 0;
+  if (!std::isnan(pedal)) {
+    if (std::isnan(pedalSmooth_)) {
+      pedalSmooth_ = pedal;
+    } else {
+      const float a = dtS / (cfg::PEDAL_SMOOTH_TAU_S + dtS);
+      const float next = pedalSmooth_ + a * (pedal - pedalSmooth_);
+      pedalDelta = std::fabs(next - pedalSmooth_);
+      pedalSmooth_ = next;
+    }
+  }
+
+  trip::TripState& t = st_.trip;
+  if (tripDecided_ && t.active && engineOn && !std::isnan(speed)) {
+    if (speed >= cfg::MOVING_MIN_KMH) {
+      t.moveS += dtS;
+      const bool sailing = out_.gear == eco::GEAR_NEUTRAL && !std::isnan(accel_) && accel_ > -cfg::ROLL_MAX_DECEL_MS2;
+      if (cut || sailing) t.rollS += dtS;
+      if (speed > t.vMax) t.vMax = speed;
+      if (!pedalClosed && !std::isnan(out_.powerKw) && out_.powerKw > t.kwPeak) t.kwPeak = out_.powerKw;
+      t.pedalAbs += pedalDelta;
+      if (out_.shiftAdvice) t.shiftOpenS += dtS;
+      // Bremsenergie nur ohne Gas (A9)
+      if (pedalClosed) {
+        const cfg::BodyType& b = profile_.bodyType();
+        t.brakeJ += eco::brakePowerW(b.massKg, b.cwA, speed / 3.6f, accel_) * dtS;
+      }
+    }
+    const float heat = profile_.fuel == FuelType::Diesel ? cfg::HEAT_DIESEL_MJ_PER_L : cfg::HEAT_PETROL_MJ_PER_L;
+    t.brakedL = eco::litersFromJoule(t.brakeJ, heat);
+    eco::ScoreInput si;
+    si.moveS = static_cast<float>(t.moveS);
+    si.rollS = static_cast<float>(t.rollS);
+    si.pedalAbs = static_cast<float>(t.pedalAbs);
+    si.shiftOpenS = static_cast<float>(t.shiftOpenS);
+    si.brakedL = t.brakedL;
+    si.km = static_cast<float>(t.km);
+    si.idleS = static_cast<float>(t.idleS);
+    si.driveS = static_cast<float>(t.durationS);
+    t.ecoScore = eco::score(si).score;
+  }
+  const float idle = std::isnan(st_.idleLph) ? cfg::IDLE_LPH_DEFAULT : st_.idleLph;
+  out_.ecoScore = t.active ? t.ecoScore : NAN;
+  out_.brakedL = t.active ? t.brakedL : NAN;
+  out_.cutSavedL = t.active ? static_cast<float>(t.cutS) * idle / 3600.0f : NAN;
+  out_.tripVmax = t.active ? t.vMax : NAN;
+  out_.tripKwPeak = t.active ? t.kwPeak : NAN;
 }
 
 void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
@@ -144,8 +369,7 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
   // Kühlmittel merken (beim nächsten Start der Wert "beim Abstellen")
   const float coolant = s.coolant.get(nowMs);
   if (!std::isnan(coolant)) st_.coolantLastC = coolant;
-  const float level = s.fuelLevel.get(nowMs);
-  if (!std::isnan(level)) st_.levelAtStopPct = level;
+  stepRefuelDetect(s, nowMs, engineOn);
 
   // Fahrt
   if (!tripDecided_) decideTrip(s, nowMs);
@@ -189,6 +413,8 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
     standstillSinceMs_ = 0;
     standstillSaved_ = false;
   }
+
+  stepEco(s, nowMs, dtS, engineOn, cut, lph);
 
   // Momentanverbrauch: 1-s-Fenster
   if (std::isnan(lph)) {
@@ -269,6 +495,10 @@ void VehicleCalc::updateOutputs(const CarState& s, uint32_t nowMs, float dtS) {
   out_.tripDurationS = tr.active ? static_cast<float>(tr.durationS) : NAN;
   out_.mixPrice = st_.mixPrice;
   out_.pumpPrice = st_.pumpPrice;
+  out_.fillKm = static_cast<float>(st_.fillKm);
+  out_.fillL = static_cast<float>(st_.fillL);
+  out_.tripIdleS = tr.active ? static_cast<float>(tr.idleS) : NAN;
+  out_.sinceFullL = static_cast<float>(st_.hadFullFill ? st_.calComputedL : st_.fillL);
 }
 
 bool VehicleCalc::takeTripRecord(trip::TripRecord& r) {
@@ -331,6 +561,7 @@ trip::FillRecord VehicleCalc::refuel(float liters, float price, bool full, trip:
     st_.tankModelValid = 1;
   }
   levelSmooth_ = NAN;  // Füllstand nach dem Tanken neu einschwingen lassen
+  st_.levelAtStopPct = NAN;  // nicht beim nächsten Start noch einmal als Tankvorgang erkennen
 
   // Kalibrierung nur zwischen Vollbetankungen (A7)
   st_.calFilledL += liters;

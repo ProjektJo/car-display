@@ -5,8 +5,10 @@
 
 enum class CmdType : uint8_t {
   SimSprint,    // Simulator: Vollgas-Sequenz beim nächsten Halt starten
-  Refuel,       // an calcTask: f = Liter, f2 = Preis €/l, i = 1 vollgetankt (Tank-Fenster ab Etappe 5)
+  Refuel,       // an calcTask: f = Liter, f2 = Preis €/l, i Bit 0 = vollgetankt, Bit 1–2 = trip::FillSource
   EndTrip,      // an calcTask: Fahrt beenden (Menü, Etappe 7)
+  GearCheckYes, // an calcTask: "Fährst du mit Fahrzeug …?" mit Ja beantwortet: Gänge neu lernen
+  GearCheckNo,  // an calcTask: Frage ohne Ja geschlossen bzw. Fahrzeug geändert
   // Weitere Befehle folgen mit den Etappen (Fehlercodes lesen/löschen ...)
 };
 

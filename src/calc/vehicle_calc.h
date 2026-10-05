@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstdint>
 
+#include "calc/eco.h"
 #include "calc/fuel.h"
+#include "calc/perf.h"
 #include "calc/persist.h"
 #include "calc/trip.h"
 #include "core/car_state.h"
@@ -25,6 +27,26 @@ class VehicleCalc {
     float tripKm = NAN, tripL = NAN, tripCost = NAN, tripDurationS = NAN;
     float mixPrice = NAN, pumpPrice = NAN;
     fuel::Source source = fuel::Source::None;
+    // Eco (A6, A9)
+    int8_t gear = eco::GEAR_NONE;  // Anzeige: Nummer, GEAR_NEUTRAL = "N", GEAR_NONE = "–"
+    bool shiftAdvice = false;      // Hochschalten empfohlen (der Pfeil kommt nach 1 s, UI)
+    float accelMs2 = NAN;          // Beschleunigung aus dem Tempo, gefiltert
+    float pedalPct = NAN;          // Gaspedal (0x49), sonst Drosselklappe (0x11)
+    float ecoScore = NAN;          // laufende Fahrt
+    float cutSavedL = NAN;         // Schub gespart in dieser Fahrt
+    float brakedL = NAN;           // Gebremst in dieser Fahrt
+    bool gearMismatch = false;     // Fahrzeug-Prüfung: Gänge passen nicht zum Profil
+    // Tankfüllung und Fahrt (Fahrt & Tank, Reichweite)
+    float fillKm = NAN;            // gefahren seit dem Tanken
+    float fillL = NAN;             // verbraucht seit dem Tanken (berechnet)
+    float tripIdleS = NAN;
+    float sinceFullL = NAN;        // berechnete Liter seit der letzten Vollbetankung (Vorschlag "Getankt")
+    // Automatische Tankerkennung (A7): zählt hoch, wenn ein Tankvorgang erkannt wurde
+    uint16_t refuelSeq = 0;
+    float refuelL = NAN;
+    // Sport und Sprint (A10)
+    float powerKw = NAN;           // geschätzte Leistung am Rad
+    float tripVmax = NAN, tripKwPeak = NAN;
   };
 
   // Profil laden. saved = gespeicherte Summen dieses Profils oder nullptr (neues Profil).
@@ -35,6 +57,7 @@ class VehicleCalc {
   const Profile& profile() const { return profile_; }
   const PersistState& state() const { return st_; }
   const Outputs& out() const { return out_; }
+  const perf::SprintMeter& sprint() const { return sprint_; }
 
   // Ein Rechenschritt mit den aktuellen Werten (s.now ist nicht nötig, nowMs zählt)
   void step(const CarState& s, uint32_t nowMs, float dtS);
@@ -49,11 +72,17 @@ class VehicleCalc {
   trip::FillRecord refuel(float liters, float price, bool full, trip::FillSource src, bool& calApplied);
   // Fahrt von Hand beenden (Menü, Etappe 7); die nächste beginnt mit dem nächsten Motorlauf
   void endTrip();
+  // Fahrzeug-Prüfung mit "Ja" beantwortet: Profil bleibt, gelernte Gänge verwerfen und neu lernen (A6)
+  void relearnGears();
+  // Fahrzeug-Prüfung ohne Antwort geschlossen bzw. anderes Fahrzeug gewählt: nicht mehr fragen
+  void dismissGearCheck();
 
  private:
   void decideTrip(const CarState& s, uint32_t nowMs);
   void finishTrip();
   void updateOutputs(const CarState& s, uint32_t nowMs, float dtS);
+  void stepEco(const CarState& s, uint32_t nowMs, float dtS, bool engineOn, bool cut, float lph);
+  void updateGears(uint32_t nowMs);
 
   bool active_ = false;
   Profile profile_;
@@ -74,6 +103,27 @@ class VehicleCalc {
   uint32_t lastSaveMs_ = 0;
   double kmAtSave_ = 0, litersAtSave_ = 0;  // Stand beim letzten Speichern
   float levelSmooth_ = NAN;      // geglätteter Füllstand (0x2F)
+
+  // Eco
+  float pedalClosed_ = NAN;      // kleinster Pedalwert seit dem Laden
+  float pedalSmooth_ = NAN;      // geglättetes Pedal für "ruhiges Gas"
+  uint32_t speedT_ = 0;          // Zeitstempel der letzten Tempo-Messung
+  float speedPrev_ = NAN;
+  float accel_ = NAN;
+  eco::StableK stable_;
+  eco::GearCheck check_;
+  bool checkAsked_ = false;      // höchstens einmal je Einschalten (bleibt über load() hinweg)
+  bool learnPaused_ = false;     // Prüfung offen: nichts lernen, bis die Antwort da ist
+
+  // Tankerkennung
+  void stepRefuelDetect(const CarState& s, uint32_t nowMs, bool engineOn);
+  bool engineWasOn_ = false;
+  uint32_t detectSince_ = 0;     // Motorstart: Füllstand wird gemittelt
+  bool detectDone_ = true;       // erst nach dem ersten Motorstart prüfen
+  double detectSum_ = 0;
+  uint32_t detectN_ = 0;
+  uint32_t lastGearSearchMs_ = 0;
+  perf::SprintMeter sprint_;
 
   // 1-s-Fenster für den Momentanverbrauch: je Schritt Dauer, Liter·s und km/h·s
   static constexpr int WIN = 16;

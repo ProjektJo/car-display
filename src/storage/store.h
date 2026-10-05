@@ -12,6 +12,7 @@
 #include "calc/persist.h"
 #include "calc/trip.h"
 #include "core/profile.h"
+#include "core/ui_settings.h"
 
 namespace store {
 
@@ -33,5 +34,9 @@ bool appendFill(uint8_t id, const trip::FillRecord& r);
 // NVS: zuletzt benutztes Profil (0 = keins)
 uint8_t lastProfileId();
 void setLastProfileId(uint8_t id);
+
+// NVS: Kacheln, Großanzeige, Diagramme. false = noch nichts gespeichert (Standard behalten)
+bool loadUi(UiSettings& ui);
+void saveUi(const UiSettings& ui);
 
 }  // namespace store

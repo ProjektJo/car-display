@@ -9,6 +9,7 @@
 #include "calc/persist.h"
 #include "calc/trip.h"
 #include "core/profile.h"
+#include "core/ui_settings.h"
 
 namespace storage {
 
@@ -29,5 +30,6 @@ void chooseProfile(uint8_t id);       // Profil gewählt: es merkt sich VIN, PID
 void dismissChoice();                 // Auswahl ohne Wahl geschlossen
 void createProfile(const Profile& p); // neues Profil aus dem Assistenten
 int summaries(ProfileSummary* out, int max);  // Liste der Profile (Kopie)
+void saveUi(const UiSettings& ui);    // Kacheln, Großanzeige, Diagramme (NVS)
 
 }  // namespace storage

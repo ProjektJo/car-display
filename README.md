@@ -2,7 +2,7 @@
 
 Display im Auto: Ein ESP32-S3 liest über einen BLE-OBD2-Adapter (ELM327-kompatibel) die Fahrzeugdaten und hilft vor allem beim spritsparenden Fahren. Spezifikation: `car-display-plan/master-prompt.md` mit `architektur.md`, `ui-entwurf.md` und der Vorschau.
 
-**Stand: Etappe 3 (Rechnen und Speichern).** Aus Etappe 1 und 2: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit, Simulator, Bluetooth-Verbindung, ELM327-Client, PID-Scheduler, Startbildschirm und Diagnose. Neu in Etappe 3: Verbrauch, Mittelwerte, Tank und Reichweite, Kalibrierung, Fahrten, Speichern im Flash und Fahrzeugprofile mit "Welches Fahrzeug?". Die meisten Seiten sind noch Platzhalter; die Übersicht zeigt Tempo, Drehzahl, Momentan, Ø 10 km, Gaspedal und Reichweite. Einzelheiten: `docs/etappe3.md`.
+**Stand: Etappe 4 (Eco-Seite).** Aus Etappe 1 bis 3: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit, Simulator, Bluetooth-Verbindung, ELM327-Client, PID-Scheduler, Startbildschirm, Diagnose, Verbrauch, Mittelwerte, Tank und Reichweite, Kalibrierung, Fahrten, Speichern im Flash und Fahrzeugprofile. Neu in Etappe 4: Eco-Seite mit Momentanverbrauch, Eco-Kurve, Gang mit Schaltpfeil, Spartipps, Eco-Score, Schub gespart und Gebremst, dazu Gänge lernen, Fahrzeug-Prüfung und Start-Karte. Einzelheiten: `docs/etappe4.md`.
 
 ## Hardware
 
@@ -21,6 +21,8 @@ Display im Auto: Ein ESP32-S3 liest über einen BLE-OBD2-Adapter (ELM327-kompati
 | Für das Auto | `pio run -e freenove -t upload` |
 | Nur kompilieren | `pio run -e freenove` und `pio run -e simulator` |
 | Unit-Tests auf dem PC | `pio test -e native` |
+| Unit-Tests auf dem Board (ohne Compiler auf dem PC) | `pio test -e board_test` |
+| Bildschirmfoto vom Board (Fehlersuche) | `python tools/screenshot.py COM7 bild.png` |
 | Serieller Monitor | `pio device monitor` |
 
 Klappt der Upload nicht: BOOT gedrückt halten, kurz RESET drücken, BOOT loslassen, nochmal hochladen.
@@ -53,7 +55,7 @@ OBD: läuft, 11 Werte im Plan
 
 Bitte die Zeile mit den unterstützten PIDs nach der ersten Fahrt aufheben: Sie zeigt, ob der Modus Tankfüllstand (2F) und Gaspedal (49) liefert.
 
-## Bedienung (Stand Etappe 3)
+## Bedienung (Stand Etappe 4)
 
 | Eingabe | Wirkung |
 |---|---|

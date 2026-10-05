@@ -23,6 +23,7 @@ constexpr const char* ROOT = "";
 constexpr const char* NVS_NAMESPACE = "cardisp";
 #endif
 constexpr const char* NVS_LAST_PROFILE = "last_prof";
+constexpr const char* NVS_UI = "ui1";  // Kacheln, Großanzeige, Diagramme (UiSettings, Version 1)
 constexpr size_t JSON_MAX = 1536;
 
 // Kopf der Ringdateien (Fahrtenbuch, Tankfüllungen)
@@ -204,6 +205,27 @@ void setLastProfileId(uint8_t id) {
   Preferences prefs;
   if (!prefs.begin(NVS_NAMESPACE, false)) return;
   if (prefs.getUChar(NVS_LAST_PROFILE, 0) != id) prefs.putUChar(NVS_LAST_PROFILE, id);
+  prefs.end();
+}
+
+bool loadUi(UiSettings& ui) {
+  Preferences prefs;
+  if (!prefs.begin(NVS_NAMESPACE, true)) return false;
+  UiSettings tmp;
+  const bool ok = prefs.getBytesLength(NVS_UI) == sizeof(tmp) && prefs.getBytes(NVS_UI, &tmp, sizeof(tmp)) == sizeof(tmp);
+  prefs.end();
+  if (!ok) return false;
+  // Texte sicher abschließen (Datei könnte aus einer anderen Version stammen)
+  for (auto& t : tmp.tiles) t[sizeof(t) - 1] = '\0';
+  for (auto& s : tmp.series) s[sizeof(s) - 1] = '\0';
+  ui = tmp;
+  return true;
+}
+
+void saveUi(const UiSettings& ui) {
+  Preferences prefs;
+  if (!prefs.begin(NVS_NAMESPACE, false)) return;
+  prefs.putBytes(NVS_UI, &ui, sizeof(ui));
   prefs.end();
 }
 

@@ -72,6 +72,7 @@ class DriveSim {
   void stepDriving(float dtS);
   void stepEngineOff(float dtS);
   float mapForFuel(float lph, float rpm) const;
+  float fuelForMap(float mapKpa, float rpm) const;
 
   uint32_t rng_;
   float t_ = 0;                 // Simulationszeit s
@@ -91,5 +92,6 @@ class DriveSim {
   float shiftPauseUntil_ = -1;  // Ende der aktuellen Schaltpause (Sprintzeit)
   uint8_t sprintGear_ = 1;
   float nextAutoSprint_;
+  float pedalWobble_ = 0;       // langsames Zittern des Fußes
   SimOutput out_;
 };

@@ -111,3 +111,5 @@ int main() {
   RUN_TEST(test_sprint_reaches_100_with_shift_pauses);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

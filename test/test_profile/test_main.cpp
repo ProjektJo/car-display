@@ -87,3 +87,5 @@ int main() {
   RUN_TEST(test_fits_car);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

@@ -67,3 +67,5 @@ int main() {
   RUN_TEST(test_simulator_long_and_very_long);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

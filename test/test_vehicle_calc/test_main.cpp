@@ -232,6 +232,47 @@ void test_fuel_cut_zero() {
   TEST_ASSERT_EQUAL_FLOAT(0.0f, calc.out().instL100);
 }
 
+// Automatische Tankerkennung mit 0x2F (A7): Anstieg um mindestens 8 % beim Motorstart = getankt
+static void runLevel(VehicleCalc& calc, CarState& s, uint32_t& now, float rpm, float speed, float level, int steps) {
+  for (int i = 0; i < steps; i++) {
+    now += 100;
+    s.speed.set(speed, now);
+    s.rpm.set(rpm, now);
+    s.map.set(45, now);
+    s.iat.set(25, now);
+    s.coolant.set(90, now);
+    s.fuelLevel.set(level, now);
+    calc.step(s, now, 0.1f);
+  }
+}
+
+void test_refuel_detection() {
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x11, 0x2F});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  runLevel(calc, s, now, 2000, 50, 30, 600);  // 60 s Fahrt mit 30 % im Tank
+  runLevel(calc, s, now, 0, 0, 30, 50);       // Motor aus (Tanken)
+  const uint16_t before = calc.out().refuelSeq;
+  runLevel(calc, s, now, 800, 0, 80, 120);    // Motor an, 12 s Stand mit 80 %
+  TEST_ASSERT_EQUAL_UINT16(before + 1, calc.out().refuelSeq);
+  TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.5f * DriveSim::TANK_L, calc.out().refuelL);
+  // Schwappen um 3 % beim nächsten Start zählt nicht
+  runLevel(calc, s, now, 0, 0, 80, 50);
+  runLevel(calc, s, now, 800, 0, 83, 120);
+  TEST_ASSERT_EQUAL_UINT16(before + 1, calc.out().refuelSeq);
+  // Ohne 0x2F gibt es keine Erkennung
+  CarState s2;
+  support(s2.link, {0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x11});
+  VehicleCalc c2;
+  c2.load(simProfile(), nullptr);
+  runLevel(c2, s2, now, 2000, 50, 30, 100);
+  runLevel(c2, s2, now, 0, 0, 30, 50);
+  runLevel(c2, s2, now, 800, 0, 80, 120);
+  TEST_ASSERT_EQUAL_UINT16(0, c2.out().refuelSeq);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_sim_drive_liters);
@@ -240,5 +281,8 @@ int main() {
   RUN_TEST(test_engine_off_and_save);
   RUN_TEST(test_fuel_cut_zero);
   RUN_TEST(test_diesel_without_fuel_rate);
+  RUN_TEST(test_refuel_detection);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

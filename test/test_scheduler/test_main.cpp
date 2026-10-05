@@ -147,3 +147,5 @@ int main() {
   RUN_TEST(test_nothing_supported_only_voltage);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

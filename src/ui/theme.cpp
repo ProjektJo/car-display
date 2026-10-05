@@ -1,5 +1,7 @@
 #include "theme.h"
 
+lv_font_t font_small;
+
 namespace theme {
 
 namespace {
@@ -9,6 +11,8 @@ bool isNight = false;
 }  // namespace
 
 void init(lv_display_t* disp) {
+  font_small = lv_font_montserrat_10;
+  font_small.fallback = &font_m12;
   lv_theme_t* th = lv_theme_default_init(disp, c(ACCENT), c(GOOD), true, &font_m14);
   lv_display_set_theme(disp, th);
 

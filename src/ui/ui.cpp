@@ -8,6 +8,11 @@
 #include "core/commands.h"
 #include "hw/display.h"
 #include "hw/touch.h"
+#include "ui/eco_popups.h"
+#include "ui/history.h"
+#include "ui/live.h"
+#include "ui/tank_dialog.h"
+#include "ui/ui_prefs.h"
 #include "ui/menu.h"
 #include "ui/overlay.h"
 #include "ui/pages/page.h"
@@ -150,6 +155,42 @@ void handleSwipe() {
   }
 }
 
+// Bildschirmfoto für die Fehlersuche: Bildschirm (RGB565) und darüber liegende Fenster (ARGB8888)
+// als Rohdaten über USB. Kopfzeile "SHOT <Breite> <Höhe>", dann beide Bilder. tools/screenshot.py setzt sie zusammen.
+void sendScreenshot() {
+  constexpr uint32_t W = BOARD_LCD_HOR_RES, H = BOARD_LCD_VER_RES;
+  static uint8_t* bufScreen = nullptr;
+  static uint8_t* bufTop = nullptr;
+  const uint32_t sizeScreen = W * H * 2 + LV_DRAW_BUF_ALIGN, sizeTop = W * H * 4 + LV_DRAW_BUF_ALIGN;
+  if (!bufScreen) bufScreen = static_cast<uint8_t*>(heap_caps_malloc(sizeScreen, MALLOC_CAP_SPIRAM));
+  if (!bufTop) bufTop = static_cast<uint8_t*>(heap_caps_malloc(sizeTop, MALLOC_CAP_SPIRAM));
+  if (!bufScreen || !bufTop) {
+    Serial.println("Bildschirmfoto: kein Speicher");
+    return;
+  }
+  lv_draw_buf_t screen, top;
+  lv_draw_buf_init(&screen, W, H, LV_COLOR_FORMAT_RGB565, 0, lv_draw_buf_align(bufScreen, LV_COLOR_FORMAT_RGB565), W * H * 2);
+  lv_draw_buf_init(&top, W, H, LV_COLOR_FORMAT_ARGB8888, 0, lv_draw_buf_align(bufTop, LV_COLOR_FORMAT_ARGB8888), W * H * 4);
+  if (lv_snapshot_take_to_draw_buf(lv_screen_active(), LV_COLOR_FORMAT_RGB565, &screen) != LV_RESULT_OK ||
+      lv_snapshot_take_to_draw_buf(lv_layer_top(), LV_COLOR_FORMAT_ARGB8888, &top) != LV_RESULT_OK) {
+    Serial.println("Bildschirmfoto: fehlgeschlagen");
+    return;
+  }
+  Serial.printf("\nSHOT %u %u\n", (unsigned)W, (unsigned)H);
+  // In Stücken schreiben und warten, bis jedes ganz raus ist (USB verwirft sonst bei vollem Puffer)
+  auto writeAll = [](const uint8_t* p, size_t n) {
+    while (n > 0) {
+      const size_t w = Serial.write(p, n > 1024 ? 1024 : n);
+      if (w == 0) vTaskDelay(1);
+      p += w;
+      n -= w;
+    }
+  };
+  writeAll(screen.data, W * H * 2);
+  writeAll(top.data, W * H * 4);
+  Serial.flush();
+}
+
 }  // namespace
 
 void task(void*) {
@@ -171,6 +212,9 @@ void task(void*) {
   touch::init();
 
   Serial.println("Start: Oberfläche aufbauen");
+  uiprefs::load();
+  history::init();
+  live::init();
   carstate::snapshot(snap);
   createUi();
   showPage(current);
@@ -192,10 +236,26 @@ void task(void*) {
       menu::update(snap);
       vehicledlg::update(snap);  // "Welches Fahrzeug?", wenn kein Profil eindeutig passt
       if (!PAGES[current]->available(snap)) stepPage(+1);  // z. B. Sensor fehlt plötzlich
+      history::tick(snap);
+      live::tick(snap);
+      for (Page* p : PAGES) p->tick(snap);
       PAGES[current]->update(snap);
+      ecopopups::update(snap, !startscreen::visible());
+      tankdlg::update(snap);  // Tank-Fenster bei erkanntem Tankvorgang, über jeder Seite
     }
     handleButton(now);
     handleSwipe();
+    // Fehlersuche über USB: S = Bildschirmfoto, n/p = nächste/vorige Seite, g = Tank-Fenster, x = Fenster schließen
+    if (cfg::SCREENSHOT_SERIAL && Serial.available() > 0) {
+      switch (Serial.read()) {
+        case 'S': sendScreenshot(); break;
+        case 'n': startscreen::hide(); stepPage(+1); break;
+        case 'p': startscreen::hide(); stepPage(-1); break;
+        case 'g': tankdlg::openManual(snap); break;
+        case 'x': overlay::close(); break;
+        default: break;
+      }
+    }
     overlay::tick(now, touch::lastTouchMs());
 
     uint32_t wait = lv_timer_handler();

@@ -35,3 +35,5 @@ int main() {
   RUN_TEST(test_record);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

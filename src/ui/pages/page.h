@@ -18,6 +18,8 @@ class Page {
   virtual void update(const CarSnapshot& s) = 0;
   // Beim Einblenden der Seite
   virtual void onShow() {}
+  // 10-mal pro Sekunde für jede Seite, auch unsichtbar (z. B. Spartipps und Sperrzeiten weiterzählen)
+  virtual void tick(const CarSnapshot&) {}
   // false = Seite ausgeblendet (z. B. G-Kraft ohne MPU6050)
   virtual bool available(const CarSnapshot&) const { return true; }
 

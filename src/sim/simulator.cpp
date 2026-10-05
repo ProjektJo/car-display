@@ -9,7 +9,7 @@ namespace {
 
 using Mode = DriveSim::Mode;
 
-// Fahrzyklus (ca. 3,5 min), wiederholt sich: Dauer s, Tempo am Ende km/h, Fahrweise
+// Fahrzyklus (ca. 4,5 min), wiederholt sich: Dauer s, Tempo am Ende km/h, Fahrweise
 struct Segment {
   float durS;
   float vEnd;
@@ -31,11 +31,12 @@ constexpr Segment CYCLE[] = {
     {12, 60, Mode::Overrun},      // 12 Schub
     {15, 60, Mode::Cruise},       // 13
     {12, 0, Mode::CoastBrake},    // 14 ausgekuppelt bremsen bis zum Stand
-    {10, 0, Mode::Idle},          // 15
+    {65, 0, Mode::Idle},          // 15 langer Stand (Hinweis "Stand · Motor aus?" nach 60 s)
 };
 constexpr int CYCLE_LEN = sizeof(CYCLE) / sizeof(CYCLE[0]);
 constexpr int SEG_REFUEL = 7;       // Abschnitt, in dem getankt wird
 constexpr int SEG_AFTER_SPRINT = 9; // nach dem Sprint weiter mit Konstantfahrt 100 km/h
+constexpr int SEG_LONG_STAND = 15;  // langer Stand: hier startet kein Sprint (Hinweis "Stand" prüfbar)
 
 // Getriebe: km/h je 1000 U/min (A6, Renault Modus grob)
 constexpr float GEAR_K[] = {7.3f, 13.2f, 19.5f, 26.0f, 32.0f};
@@ -46,7 +47,7 @@ constexpr float RPM_IDLE_WARM = 780;
 constexpr float RPM_IDLE_COLD_PER_K = 7;     // kalter Motor dreht höher: +7 U/min je K unter 50 °C
 constexpr float COLD_IDLE_BELOW_C = 50;
 constexpr float RPM_UPSHIFT_ACCEL = 2900;    // Fahrer schaltet beim Beschleunigen hier hoch
-constexpr float RPM_MIN_CRUISE = 1300;       // höchster Gang, der noch so viel Drehzahl hat
+constexpr float RPM_MIN_CRUISE = 1700;       // höchster Gang, der noch so viel Drehzahl hat (Stadt 50 im 4.)
 constexpr float RPM_FLOOR_ACCEL = 1150;
 constexpr float RPM_FLOOR_CRUISE = 1100;
 constexpr float CLUTCH_BELOW_KMH = 15;       // darunter wird ausgekuppelt
@@ -58,6 +59,9 @@ constexpr float SPRINT_START_MAX_KMH = 0.5f; // Sprint beginnt nur aus dem Stand
 constexpr float PEDAL_ACCEL = 46, PEDAL_ACCEL_VAR = 4;
 constexpr float PEDAL_CRUISE_BASE = 12, PEDAL_CRUISE_PER_KMH = 0.12f, PEDAL_CRUISE_VAR = 1.5f;
 constexpr float PEDAL_FULL = 98, PEDAL_FULL_VAR = 1, PEDAL_SHIFT = 4;
+// Der Fuß zittert langsam, nicht bei jeder Abfrage neu: Rauschen mit τ = 1 s geglättet (Eco-Score "ruhiges Gas")
+constexpr float PEDAL_WOBBLE_TAU_S = 1.0f;
+constexpr float PEDAL_WOBBLE_GAIN = 2.5f;     // gleicht die kleinere Schwankung nach dem Glätten aus
 
 // Verbrauchsmodell l/h (wie in der Vorschau): Grundwert + je km/h (+ je (km/h)² bei Konstantfahrt)
 constexpr float LPH_IDLE = 0.7f;
@@ -144,6 +148,13 @@ void DriveSim::startSegment(int index) {
   }
 }
 
+float DriveSim::fuelForMap(float mapKpa, float rpm) const {
+  // Speed-Density vorwärts (A7): Verbrauch, der zu diesem Saugrohrdruck gehört
+  const float trim = out_.fuelSys == FUELSYS_CLOSED ? (out_.stftPct + out_.ltftPct) : 0.0f;
+  const float airGs = mapKpa * DISPLACEMENT_L * rpm / 120.0f * VE / (R_AIR * (out_.iatC + KELVIN));
+  return airGs / AFR * (1.0f + trim / 100.0f) * 3600.0f / DENSITY_G_PER_L;
+}
+
 float DriveSim::mapForFuel(float lph, float rpm) const {
   // Umkehrung der Speed-Density-Rechnung (A7): welcher Saugrohrdruck ergibt diesen Verbrauch?
   const float fuelGs = lph * DENSITY_G_PER_L / 3600.0f;
@@ -210,7 +221,7 @@ void DriveSim::stepEngineOff(float dtS) {
 
 void DriveSim::stepDriving(float dtS) {
   // Sprint starten, sobald das Auto steht
-  if (sprintRequested_ && sprintT_ < 0 && speed_ < SPRINT_START_MAX_KMH && mode_ == Mode::Idle) {
+  if (sprintRequested_ && sprintT_ < 0 && speed_ < SPRINT_START_MAX_KMH && mode_ == Mode::Idle && seg_ != SEG_LONG_STAND) {
     sprintRequested_ = false;
     sprintT_ = 0;
     sprintGear_ = 1;
@@ -220,6 +231,8 @@ void DriveSim::stepDriving(float dtS) {
 
   const bool cold = coolant_ < COLD_BELOW_C;
   float pedal = 0, rpm = 0, lph = 0;
+  pedalWobble_ += (rnd(1.0f) - pedalWobble_) * std::min(1.0f, dtS / PEDAL_WOBBLE_TAU_S);
+  const float wobble = clampf(pedalWobble_ * PEDAL_WOBBLE_GAIN, -1.0f, 1.0f);
   uint8_t gear = 0;
   bool overrunCut = false;
 
@@ -267,7 +280,7 @@ void DriveSim::stepDriving(float dtS) {
       while (g < GEARS - 1 && speed_ / GEAR_K[g] * 1000.0f > RPM_UPSHIFT_ACCEL) g++;
       gear = static_cast<uint8_t>(g + 1);
       rpm = std::max(RPM_FLOOR_ACCEL, speed_ / GEAR_K[g] * 1000.0f);
-      pedal = PEDAL_ACCEL + rnd(PEDAL_ACCEL_VAR);
+      pedal = PEDAL_ACCEL + wobble * PEDAL_ACCEL_VAR;
       lph = LPH_ACCEL_BASE + LPH_ACCEL_PER_KMH * speed_;
     } else {  // Cruise, Overrun
       int g = GEARS - 1;
@@ -277,7 +290,7 @@ void DriveSim::stepDriving(float dtS) {
       if (mode_ == Mode::Overrun) {
         overrunCut = true;
       } else {
-        pedal = PEDAL_CRUISE_BASE + speed_ * PEDAL_CRUISE_PER_KMH + rnd(PEDAL_CRUISE_VAR);
+        pedal = PEDAL_CRUISE_BASE + speed_ * PEDAL_CRUISE_PER_KMH + wobble * PEDAL_CRUISE_VAR;
         lph = LPH_CRUISE_BASE + LPH_CRUISE_PER_KMH * speed_ + LPH_CRUISE_PER_KMH2 * speed_ * speed_;
       }
     }
@@ -303,5 +316,7 @@ void DriveSim::stepDriving(float dtS) {
   out_.stftPct = out_.fuelSys == FUELSYS_CLOSED ? rnd(STFT_VAR_PCT) : 0.0f;
   out_.trueLph = overrunCut ? 0.0f : lph;
   out_.mapKpa = overrunCut ? MAP_OVERRUN_KPA + rnd(MAP_NOISE) : mapForFuel(lph, rpm);
+  // Mehr als Umgebungsdruck saugt der Motor nicht an: Ist der Druck gekappt, verbraucht er auch nur so viel
+  if (!overrunCut && out_.mapKpa >= MAP_MAX_KPA) out_.trueLph = fuelForMap(out_.mapKpa, rpm);
   out_.loadPct = overrunCut ? LOAD_OVERRUN_PCT : clampf(out_.mapKpa / MAP_MAX_KPA * 100.0f, 0, 100);
 }

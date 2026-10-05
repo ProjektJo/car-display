@@ -101,3 +101,5 @@ int main() {
   RUN_TEST(test_start_steps);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

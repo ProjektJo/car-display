@@ -485,7 +485,7 @@
 /*Montserrat fonts with ASCII range and some symbols using bpp = 4
  *https://fonts.google.com/specimen/Montserrat*/
 #define LV_FONT_MONTSERRAT_8  0
-#define LV_FONT_MONTSERRAT_10 0
+#define LV_FONT_MONTSERRAT_10 1 /*Car-Display: zweite Zeile im Hinweis-Feld (nur ASCII, z. B. "max. 2.500 U/min")*/
 #define LV_FONT_MONTSERRAT_12 0
 #define LV_FONT_MONTSERRAT_14 0 /*Car-Display: eigene Schriften mit Umlauten (src/ui/fonts)*/
 #define LV_FONT_MONTSERRAT_16 0
@@ -499,7 +499,7 @@
 #define LV_FONT_MONTSERRAT_32 0
 #define LV_FONT_MONTSERRAT_34 0
 #define LV_FONT_MONTSERRAT_36 0
-#define LV_FONT_MONTSERRAT_38 0
+#define LV_FONT_MONTSERRAT_38 1 /*Car-Display: Momentanverbrauch der Eco-Seite (nur ASCII, "–" kommt aus font_m28)*/
 #define LV_FONT_MONTSERRAT_40 0
 #define LV_FONT_MONTSERRAT_42 0
 #define LV_FONT_MONTSERRAT_44 0
@@ -863,7 +863,7 @@
  *==================*/
 
 /*1: Enable API to take snapshot for object*/
-#define LV_USE_SNAPSHOT 0
+#define LV_USE_SNAPSHOT 1  /*Car-Display: Bildschirmfoto über USB (tools/screenshot.py)*/
 
 /*1: Enable system monitor component*/
 #define LV_USE_SYSMON   0

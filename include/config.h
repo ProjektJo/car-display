@@ -19,7 +19,7 @@ namespace cfg {
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
-constexpr const char* FW_VERSION = "2.0.1-etappe3";
+constexpr const char* FW_VERSION = "2.0.2-etappe4";
 
 // ---------------------------------------------------------------------------
 // Aufgaben und Takt (A5)
@@ -191,6 +191,15 @@ constexpr float RANGE_LOW_KM = 50.0f;             // darunter Tanksymbol und Kac
 // ANNAHME: Der Füllstand aus 0x2F schwappt; er wird mit τ = 30 s geglättet ("geglättet", A7).
 constexpr float TANK_LEVEL_TAU_S = 30.0f;
 constexpr float PRICE_TENTH_CENTS = 0.009f;       // feste ⁹ hinter Euro und Cent (A7)
+// ANNAHME: Vorschlag im Tank-Fenster, solange noch nie ein Preis eingegeben wurde: 1,79⁹ €/l
+constexpr float PRICE_DEFAULT = 1.799f;
+// Automatische Tankerkennung nur mit 0x2F (A7): beim Motorstart den Füllstand 10 s im Stand mitteln
+// und mit dem Füllstand beim Abstellen vergleichen; Anstieg ≥ 8 % der Tankgröße = getankt.
+constexpr uint32_t REFUEL_AVG_MS = 10000;
+constexpr float REFUEL_MIN_RISE_PCT = 8.0f;
+constexpr float REFUEL_FULL_PCT = 95.0f;          // darüber die berechneten Liter seit der letzten Vollbetankung
+constexpr float TRIP_AVG_MIN_KM = 0.5f;           // Fahrt & Tank: Ø Fahrt erst ab 0,5 km (U Seite 6)
+constexpr float TANK_GOAL_MIN_KM = 5.0f;          // "Ø / Ziel" erst ab 5 km seit dem Tanken (Vorschau)
 
 // ---------------------------------------------------------------------------
 // Speichern und Fahrtende (A8)
@@ -204,6 +213,134 @@ constexpr float TRIP_PAUSE_MAX_DROP_C = 4.0f;     // ... und beim Start höchste
 constexpr uint32_t TRIP_ENGINE_OFF_END_MS = 5UL * 60 * 1000;  // Strom bleibt an: 5 min ohne Motor = Fahrtende
 // ANNAHME: Fahrten unter 100 m (z. B. nur Zündung an) kommen nicht ins Fahrtenbuch.
 constexpr float TRIP_MIN_RECORD_KM = 0.1f;
+
+// ---------------------------------------------------------------------------
+// Gang und Schaltempfehlung (A6 Gänge, A9)
+// ---------------------------------------------------------------------------
+// Lernen: nur stabile Phasen (A6)
+constexpr float GEAR_LEARN_MIN_KMH = 10.0f;
+constexpr float GEAR_LEARN_MIN_RPM = 1100.0f;
+constexpr float GEAR_STABLE_WINDOW_S = 1.5f;      // k ändert sich über 1,5 s ...
+constexpr float GEAR_STABLE_MAX_CHANGE = 0.03f;   // ... um weniger als 3 %
+// ANNAHME: Histogramm mit logarithmischen Klassen von je 1 % zwischen k = 3 und k = 60
+// (km/h je 1000 U/min); deckt alle Gänge vom Kleinwagen bis zum langen 6. Gang ab.
+constexpr float GEAR_K_MIN = 3.0f;
+constexpr float GEAR_BIN_RATIO = 1.01f;
+constexpr uint16_t GEAR_BINS = 302;               // ln(60/3) / ln(1,01) ≈ 301
+// ANNAHME: Eine Häufung zählt als Gang ab 20 Proben (2 s stabile Fahrt) und mindestens 2 % aller Proben;
+// zwei Gänge liegen mindestens 12 % auseinander (sonst ist es dieselbe Häufung).
+constexpr uint16_t GEAR_PEAK_MIN_SAMPLES = 20;
+constexpr float GEAR_PEAK_MIN_SHARE = 0.02f;
+constexpr float GEAR_PEAK_MIN_SEPARATION = 1.12f;
+constexpr uint32_t GEAR_LEARN_MIN_TOTAL = 300;    // erst ab 30 s stabiler Fahrt Gänge ins Profil schreiben
+constexpr uint32_t GEAR_RECHECK_MS = 10000;       // Häufungen alle 10 s neu suchen
+constexpr float GEAR_MATCH_TOL = 0.06f;           // Gang erkannt, wenn k höchstens 6 % abweicht (A6)
+constexpr float GEAR_NEUTRAL_MIN_KMH = 15.0f;     // Leerlaufdrehzahl bei Fahrt > 15 km/h = "N" (A6)
+// ANNAHME: Leerlauf = Drehzahl unter 1000 U/min (warm ca. 780, kalt bis ca. 1000)
+constexpr float GEAR_IDLE_MAX_RPM = 1000.0f;
+// ANNAHME: Ist der kleinste gelernte Wert größer als 10,5, fehlt der 1. Gang (er ist selten lange
+// stabil); die Zählung beginnt dann bei 2.
+constexpr float GEAR_FIRST_MAX_K = 10.5f;
+// Fahrzeug-Prüfung (A6): nach mindestens 2 min stabiler Phasen höchstens 1/3 passend = falsches Auto
+constexpr float GEAR_CHECK_MIN_STABLE_S = 120.0f;
+constexpr float GEAR_CHECK_MAX_MATCH_SHARE = 1.0f / 3.0f;
+
+// Schaltempfehlung (A9)
+constexpr float SHIFT_MAX_PEDAL_PCT = 60.0f;      // Gaspedal unter 60 %
+constexpr float SHIFT_NEXT_MIN_RPM_PETROL = 1300.0f;  // Drehzahl im nächsten Gang mindestens ...
+constexpr float SHIFT_NEXT_MIN_RPM_DIESEL = 1200.0f;
+constexpr uint32_t SHIFT_ARROW_DELAY_MS = 1000;   // Pfeil, sobald die Empfehlung 1 s anliegt (A9)
+// ANNAHME: Gaspedal "geschlossen" = höchstens 3 Prozentpunkte über dem kleinsten Wert seit dem Laden
+constexpr float PEDAL_CLOSED_MARGIN_PCT = 3.0f;
+
+// ---------------------------------------------------------------------------
+// Eco-Score, Bremsenergie, Leistung (A9, A10)
+// ---------------------------------------------------------------------------
+constexpr float SCORE_W_ROLL = 0.35f, SCORE_W_CALM = 0.25f, SCORE_W_EARLY = 0.20f, SCORE_W_BRAKE = 0.10f,
+                SCORE_W_IDLE = 0.10f;
+constexpr float SCORE_ROLL_FULL_SHARE = 0.25f;    // 25 % der Fahrzeit rollen = 100 Punkte
+constexpr float SCORE_CALM_PER_PCT_S = 25.0f;     // 100 − 25 × (Pedaländerung %/s − 1)
+constexpr float SCORE_EARLY_FACTOR = 400.0f;      // 100 − 400 × Anteil offene Schaltempfehlung
+constexpr float SCORE_BRAKE_ZERO_L100 = 1.5f;     // 0 Punkte ab 1,5 l/100 km gebremst
+constexpr float SCORE_IDLE_ZERO_SHARE = 0.30f;    // 0 Punkte ab 30 % Standzeit
+constexpr float SCORE_GOOD = 80.0f;               // ab 80 gut
+constexpr float SCORE_OK = 60.0f;                 // darunter Luft nach oben
+constexpr float ROLL_MAX_DECEL_MS2 = 0.5f;        // Segeln zählt als Rollen ohne Verzögerung > 0,5 m/s² (A9)
+// ANNAHME: Pedal wird für "ruhiges Gas" mit τ = 0,3 s geglättet (Vorschau: Faktor 0,25 je Schritt)
+constexpr float PEDAL_SMOOTH_TAU_S = 0.3f;
+// ANNAHME: Beschleunigung aus der Tempoänderung zwischen zwei Abfragen, geglättet mit τ = 0,5 s
+constexpr float ACCEL_SMOOTH_TAU_S = 0.5f;
+constexpr float MOVING_MIN_KMH = 3.0f;            // ANNAHME: "in Bewegung" ab 3 km/h (Vorschau)
+constexpr float AIR_DENSITY = 1.2f;               // kg/m³ (A9, A10)
+constexpr float ROLL_COEFF = 0.012f;              // c_r (A6)
+constexpr float GRAVITY = 9.81f;
+constexpr float ENGINE_EFFICIENCY = 0.25f;        // Bremsenergie in Liter: J ÷ (0,25 · Heizwert) (A9)
+// Schub gespart = Schubzeit × gelernter Leerlaufverbrauch (warm, im Stand) (A9)
+// ANNAHME: bis er gelernt ist, gilt 0,7 l/h (Vorschau); gelernt wird ab 70 °C mit τ = 60 s.
+constexpr float IDLE_LPH_DEFAULT = 0.7f;
+constexpr float IDLE_LEARN_MIN_COOLANT_C = 70.0f;
+constexpr float IDLE_LEARN_TAU_S = 60.0f;
+
+// ---------------------------------------------------------------------------
+// Spartipps (A9 Regelwerk)
+// ---------------------------------------------------------------------------
+constexpr uint32_t TIP_SHOW_MS = 8000;            // 8 s sichtbar
+constexpr uint32_t TIP_GAP_MS = 60000;            // mindestens 60 s zwischen zwei Tipps
+constexpr uint32_t TIP_SAME_GAP_MS = 300000;      // derselbe Tipp frühestens nach 5 min
+constexpr uint32_t TIP_TOUCH_QUIET_MS = 3000;     // keine Tipps 3 s nach einem Tippen
+// Gang rein: ausgekuppelt, > 20 km/h und Verzögerung > 0,5 m/s² seit 2 s
+constexpr float TIP_COAST_MIN_KMH = 20.0f;
+constexpr float TIP_COAST_DECEL_MS2 = 0.5f;
+constexpr uint32_t TIP_COAST_HOLD_MS = 2000;
+constexpr float TIP_COAST_END_DECEL_MS2 = 0.3f;   // Anlass vorbei, wenn kaum noch verzögert wird (Vorschau)
+// Sanfter Gas geben: Pedal > 70 % seit > 3 s bei > 30 km/h
+constexpr float TIP_HARD_PEDAL_PCT = 70.0f;
+constexpr uint32_t TIP_HARD_HOLD_MS = 3000;
+constexpr float TIP_HARD_MIN_KMH = 30.0f;
+// Früher vom Gas: Verzögerung > 2,5 m/s² innerhalb von 4 s nach Pedal > 30 %
+constexpr float TIP_LATE_DECEL_MS2 = 2.5f;
+constexpr float TIP_LATE_PEDAL_PCT = 30.0f;
+constexpr uint32_t TIP_LATE_WINDOW_MS = 4000;
+// Langer Stand: Motor läuft, Tempo 0 seit > 60 s, danach alle 30 s
+constexpr uint32_t TIP_IDLE_AFTER_MS = 60000;
+constexpr uint32_t TIP_IDLE_REPEAT_MS = 30000;
+constexpr float TIP_STAND_MAX_KMH = 1.0f;
+// Gleichmäßig Gas: Tempo ± 3 km/h, Pedal-Standardabweichung > 8 % über 10 s
+constexpr float TIP_STEADY_SPEED_BAND_KMH = 3.0f;
+constexpr float TIP_STEADY_PEDAL_SD = 8.0f;
+constexpr uint32_t TIP_STEADY_WINDOW_MS = 10000;
+// ANNAHME: "Tempo konstant" erst ab 30 km/h, sonst schlägt die Regel im Stop-and-go an
+constexpr float TIP_STEADY_MIN_KMH = 30.0f;
+
+// Sprint und Auto-Sprint (A10)
+constexpr float SPRINT_STAND_KMH = 0.5f;          // darunter steht das Auto
+constexpr uint32_t SPRINT_STAND_MIN_MS = 1000;    // mindestens 1 s gestanden ...
+constexpr uint32_t SPRINT_ARM_AFTER_LEAVE_MS = 3000;  // ... und spätestens 3 s nach dem Anfahren ...
+constexpr float SPRINT_PEDAL_PCT = 85.0f;         // ... Gaspedal ≥ 85 % ...
+constexpr float SPRINT_MIN_RPM = 3000.0f;         // ... und Drehzahl ≥ 3000 U/min = Sprint
+constexpr float SPRINT_ABORT_PEDAL_PCT = 50.0f;   // Abbruch: Gas länger als 1,5 s unter 50 % ...
+constexpr uint32_t SPRINT_ABORT_LOW_MS = 1500;
+constexpr float SPRINT_ABORT_DROP_KMH = 3.0f;     // ... oder Tempo fällt um mehr als 3 km/h
+constexpr uint32_t AUTO_SPRINT_RETURN_DONE_MS = 4000;  // zurück 4 s nach dem Ziel ...
+constexpr uint32_t AUTO_SPRINT_RETURN_LOW_MS = 2000;   // ... 2 s nachdem das Gas unter 50 % fällt ...
+constexpr uint32_t AUTO_SPRINT_NOT_RUNNING_MS = 3000;  // ... wenn 3 s nach dem Wechsel keine Messung läuft ...
+constexpr uint32_t AUTO_SPRINT_MAX_MS = 25000;         // ... spätestens nach 25 s
+constexpr float LIVE_WINDOW_S = 30.0f;            // Sport: Live-Diagramm der letzten 30 s
+constexpr uint16_t LIVE_ENTRIES = 240;            // 30 s × 8 Abfragen/s
+constexpr float RPM_GAUGE_MAX = 6500.0f;          // Drehzahlbogen 0–6500 U/min (A10)
+constexpr float RPM_GAUGE_WARN = 5800.0f;         // ab 5800 warn
+constexpr float KW_TO_PS = 1.36f;
+
+// Start-Karte (U Start-Karte, Z 12): aus der letzten Fahrt, wenn ≥ 1 km; 6 s, Tippen oder > 5 km/h schließt
+constexpr float START_CARD_MIN_KM = 1.0f;
+constexpr uint32_t START_CARD_SHOW_MS = 6000;
+constexpr float START_CARD_CLOSE_KMH = 5.0f;
+
+// Eco-Kurve (U Seite 1)
+constexpr float ECO_CURVE_TOP_L100 = 12.0f;       // Y-Achse 0–12, Werte darüber oben mit ↑
+constexpr float COLOR_GOOD_BELOW = 0.95f;         // good unter 95 % des Bezugs (M Farbschwellen)
+constexpr float COLOR_WARN_ABOVE = 1.10f;         // warn über 110 %
+constexpr uint32_t CHART_MIN_REDRAW_MS = 200;     // Diagramme zeichnen höchstens mit 5 Hz (M)
 
 // ---------------------------------------------------------------------------
 // Display und Hintergrundlicht (A2 Nr. 5, M Hardware)
@@ -230,6 +367,8 @@ constexpr int16_t SWIPE_MIN_DX_PX = 40;           // Wischen links/rechts ab 40 
 constexpr int16_t SWIPE_DOWN_MIN_DY_PX = 50;      // Wischen von oben nach unten ab 50 px ... (Vorschau)
 constexpr int16_t SWIPE_DOWN_START_MAX_Y_PX = 40; // ... wenn es in den obersten 40 px beginnt (Vorschau)
 constexpr bool TOUCH_DEBUG_LOG = true;            // Roh- und umgerechnete Touch-Koordinaten im seriellen Monitor
+// Fehlersuche: Ein "S" über den seriellen Monitor schickt ein Bildschirmfoto an den PC (tools/screenshot.py)
+constexpr bool SCREENSHOT_SERIAL = true;
 
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;       // BOOT-Taste entprellen
 constexpr uint32_t BUTTON_LONG_MS = LONG_PRESS_MS;// BOOT lang = Menü (U)

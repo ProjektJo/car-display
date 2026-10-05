@@ -59,13 +59,23 @@ void handleCommands() {
     switch (c.type) {
       case CmdType::Refuel: {
         bool cal = false;
-        const trip::FillRecord r = vc.refuel(c.f, c.f2, c.i != 0, trip::FillSource::Entered, cal);
+        // i: Bit 0 = vollgetankt, Bit 1–2 = Herkunft der Liter (trip::FillSource)
+        const auto src = static_cast<trip::FillSource>((c.i >> 1) & 3);
+        const trip::FillRecord r = vc.refuel(c.f, c.f2, (c.i & 1) != 0, src, cal);
+        Serial.printf("Getankt: %.1f l zu %.3f EUR/l%s\n", c.f, c.f2, (c.i & 1) ? ", voll" : "");
         storage::appendFill(vc.profile().id, r);
         if (cal) Serial.printf("Kalibrierung: fuel_cal jetzt %.4f\n", vc.profile().fuelCal);
         break;
       }
       case CmdType::EndTrip:
         vc.endTrip();
+        break;
+      case CmdType::GearCheckYes:
+        vc.relearnGears();
+        Serial.println("Gänge: Profil behalten, Gänge werden neu gelernt");
+        break;
+      case CmdType::GearCheckNo:
+        vc.dismissGearCheck();
         break;
       default:
         break;
@@ -79,6 +89,14 @@ void logSave(const VehicleCalc::Outputs& o) {
   fmt::number(a10, sizeof(a10), o.avg10, 1);
   fmt::number(tank, sizeof(tank), o.tankL, 1);
   fmt::number(range, sizeof(range), o.rangeKm, 0);
+  const trip::TripState& t = vc.state().trip;
+  Serial.printf("Eco: Score %.0f, Bewegung %.0f s, Rollen %.0f s, Pedal %.0f %%, Schaltempf. %.0f s, gebremst %.3f l, Leerlauf %.0f/%.0f s, Gang %d\n",
+                o.ecoScore, t.moveS, t.rollS, t.pedalAbs, t.shiftOpenS, t.brakedL, t.idleS, t.durationS, o.gear);
+  float g[MAX_GEARS];
+  const int n = eco::findGears(vc.state().gearHist, g, MAX_GEARS);
+  Serial.printf("Gänge: %u stabile Proben, %d Häufungen:", (unsigned)vc.state().gearHist.total, n);
+  for (int i = 0; i < n; i++) Serial.printf(" %.1f", g[i]);
+  Serial.println();
   Serial.printf("Gespeichert: Fahrt %s km, Ø 10 km %s l/100, Tank %s l, Reichweite %s km\n", trip, a10, tank, range);
 }
 
@@ -101,6 +119,51 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
     put(s.tripL, o.tripL);
     put(s.tripCost, o.tripCost);
     put(s.mixPrice, o.mixPrice);
+    put(s.pumpPrice, o.pumpPrice);
+    put(s.tripDurationS, o.tripDurationS);
+    put(s.tripIdleS, o.tripIdleS);
+    put(s.fillKm, o.fillKm);
+    put(s.fillL, o.fillL);
+    put(s.sinceFullL, o.sinceFullL);
+    if (active && o.refuelSeq != s.refuelSeq) {
+      s.refuelSeq = o.refuelSeq;
+      s.refuelL = o.refuelL;
+    }
+    s.gear = active ? o.gear : eco::GEAR_NONE;
+    s.shiftAdvice = active && o.shiftAdvice;
+    put(s.accel, o.accelMs2);
+    put(s.pedalUsed, o.pedalPct);
+    put(s.ecoScore, o.ecoScore);
+    put(s.cutSavedL, o.cutSavedL);
+    put(s.brakedL, o.brakedL);
+    static bool askedBefore = false;
+    if (active && o.gearMismatch && !askedBefore) {
+      askedBefore = true;
+      s.gearCheckSeq++;
+    }
+    put(s.powerKw, o.powerKw);
+    put(s.tripVmax, o.tripVmax);
+    put(s.tripKwPeak, o.tripKwPeak);
+    {
+      const perf::SprintMeter& m = vc.sprint();
+      SprintInfo& si = s.sprint;
+      si.state = active ? m.state() : perf::State::Ready;
+      si.active = active && m.active();
+      si.run80 = active && m.run80();
+      si.elapsed = active ? m.elapsed(now) : NAN;
+      si.doneAtMs = m.doneAtMs();
+      si.launchSeq = m.launchSeq();
+      si.last50 = m.last50();
+      si.last100 = m.last100();
+      si.last80120 = m.last80120();
+      si.best50 = m.best().s50;
+      si.best100 = m.best().s100;
+      si.best80120 = m.best().s80120;
+      si.lastTrace = m.lastTrace();
+      si.bestTrace = m.best().trace100;
+    }
+    s.hasLastTrip = active && vc.state().hasLastTrip;
+    if (s.hasLastTrip) s.lastTrip = vc.state().lastTrip;
     if (active) s.profile.fuelCal = vc.profile().fuelCal;
   });
 }
@@ -140,7 +203,13 @@ void step() {
 
   trip::TripRecord rec;
   if (vc.takeTripRecord(rec)) storage::appendTrip(vc.profile().id, rec);
-  if (vc.takeProfileChanged()) storage::saveProfile(vc.profile());
+  if (vc.takeProfileChanged()) {
+    const Profile& p = vc.profile();
+    storage::saveProfile(p);
+    Serial.printf("Profil gespeichert: fuel_cal %.4f, %u Gänge:", p.fuelCal, p.gearCount);
+    for (uint8_t i = 0; i < p.gearCount; i++) Serial.printf(" %.1f", p.gears[i]);
+    Serial.println();
+  }
   if (vc.saveDue(now)) {
     vc.markSaved(now);
     storage::requestSave(vc.state());

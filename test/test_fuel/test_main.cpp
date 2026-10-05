@@ -140,3 +140,5 @@ int main() {
   RUN_TEST(test_range);
   return UNITY_END();
 }
+
+#include "../board_runner.h"

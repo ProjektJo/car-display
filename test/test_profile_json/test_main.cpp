@@ -85,3 +85,5 @@ int main() {
   RUN_TEST(test_crc32);
   return UNITY_END();
 }
+
+#include "../board_runner.h"
