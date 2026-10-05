@@ -120,10 +120,11 @@ void setPage(const char* name, int index, int count) {
 void update(const CarSnapshot& s) {
   // Verbindungspunkt: grün = Daten fließen, bernstein = verbunden, Motor aus (Vorschau),
   // grau blinkend = verbinde, grau = getrennt (U Rahmen)
-  const bool connecting = s.link == LinkState::Searching || s.link == LinkState::Connecting ||
-                          s.link == LinkState::InitAdapter;
+  const LinkState st = s.link.state;
+  const bool connecting = st == LinkState::Searching || st == LinkState::Connecting ||
+                          st == LinkState::InitAdapter || st == LinkState::ReadVehicle;
   uint32_t dotColor = theme::MUTED;
-  if (s.link == LinkState::Running) dotColor = s.engineRunning() ? theme::GOOD : theme::WARN;
+  if (st == LinkState::Running) dotColor = s.engineRunning() ? theme::GOOD : theme::WARN;
   if (dotColor != shownDotColor) {
     shownDotColor = dotColor;
     lv_obj_set_style_bg_color(linkDot, theme::c(dotColor), 0);

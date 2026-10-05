@@ -35,7 +35,8 @@ constexpr int32_t STATUSBAR_H = 20;
 constexpr int32_t CONTENT_H = 220;
 constexpr int32_t RADIUS_TILE = 6;
 constexpr int32_t RADIUS_DIALOG = 8;
-constexpr int32_t DIALOG_INSET = 14;
+constexpr int32_t DIALOG_INSET = 14;      // Menü (.dlg)
+constexpr int32_t DIALOG_INSET_SUB = 6;   // Unterdialoge wie Diagnose
 
 // Theme anwenden (Standard-Theme dunkel, Akzent), Hintergrund setzen
 void init(lv_display_t* disp);

@@ -2,12 +2,12 @@
 
 Display im Auto: Ein ESP32-S3 liest über einen BLE-OBD2-Adapter (ELM327-kompatibel) die Fahrzeugdaten und hilft vor allem beim spritsparenden Fahren. Spezifikation: `car-display-plan/master-prompt.md` mit `architektur.md`, `ui-entwurf.md` und der Vorschau.
 
-**Stand: Etappe 1 (Gerüst).** Display, Touch und LVGL mit Theme, Statusleiste und Wischnavigation über die (noch leeren) Seiten, BOOT-Taste, Helligkeit per PWM und die Simulator-Datenquelle mit `CarState` und Snapshot. Bluetooth und OBD kommen in Etappe 2.
+**Stand: Etappe 2 (Verbindung).** Dazu aus Etappe 1: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit und Simulator. Neu in Etappe 2: Bluetooth-Verbindung zum Adapter, eigener ELM327-Client, Liste der unterstützten PIDs, VIN, PID-Abfragen nach Takt-Klassen, Neuverbindung, Startbildschirm und Diagnose-Dialog. Die meisten Seiten sind noch Platzhalter; die Übersicht zeigt die Rohwerte.
 
 ## Hardware
 
 - Freenove ESP32-S3 Display 2,8" FNK0104B (N16R8, ILI9341, FT6336U-Touch). Alle Pins stehen in `include/board_fnk0104b.h`.
-- Adapter Vgate vLinker MC+ in der BLE-Version (ab Etappe 2).
+- Adapter Vgate vLinker MC+ in der BLE-Version ("iOS" bzw. "BT 4.0"). Die Firmware sucht ihn automatisch: Sie nimmt den ersten Bluetooth-Namen, der nach OBD-Adapter aussieht (OBD, VLINK, VGATE, ELM, ICAR, V-LINK, KONNWEI). Für einen bestimmten Adapter in `include/config.h` `BLE_ADAPTER_NAME` oder `BLE_ADAPTER_MAC` eintragen.
 
 ## Bauen und flashen
 
@@ -31,15 +31,37 @@ Der erste Build lädt die Bibliotheken herunter (LVGL 9.2, TFT_eSPI, NimBLE, Ard
 
 **Speicher:** Nach dem Build stehen in der Ausgabe zwei Zeilen `RAM:` und `Flash:`. Bitte beide Zeilen mitschicken.
 
-## Bedienung (Stand Etappe 1)
+## Verbindung
+
+Nach dem Einschalten zeigt der Startbildschirm die Schritte: "Suche Adapter …", "Verbunden mit …", "Protokoll: …", "Fahrzeug: …". Bei einem Fehler steht dort ein Satz mit der Lösung und die Zeit bis zum nächsten Versuch (Pausen 1, 2, 5, 10 s, danach alle 10 s). Tippen blendet den Startbildschirm aus, lang drücken öffnet das Menü.
+
+Reißt die Verbindung später ab, bleibt die Seite stehen. Der Punkt links in der Statusleiste wird grau, die Werte zeigen "–", und die Firmware verbindet sich von selbst neu.
+
+Menü → **Diagnose** zeigt Adapter, Protokoll, Abfragen pro Sekunde, unterstützte PIDs (mit den fehlenden wichtigen wie Tank oder Gaspedal), die Verbrauchsquelle und die Fahrzeugart.
+
+Der serielle Monitor (`pio device monitor`) schreibt beim Verbinden mit:
+
+```
+BLE: Suche Adapter …
+  gefunden: 00:10:cc:4f:36:03  vLinker MC-IOS
+BLE-UART: Dienst fff0, RX fff1, TX fff2
+ELM: ELM327 v2.2
+OBD: Protokoll 5 (ISO 14230-4 KWP)
+OBD: 11 unterstützte PIDs: 01 03 04 05 06 07 0B 0C 0D 0F 11 20
+OBD: läuft, 11 Werte im Plan
+```
+
+Bitte die Zeile mit den unterstützten PIDs nach der ersten Fahrt aufheben: Sie zeigt, ob der Modus Tankfüllstand (2F) und Gaspedal (49) liefert.
+
+## Bedienung (Stand Etappe 2)
 
 | Eingabe | Wirkung |
 |---|---|
 | Wischen nach links / rechts | nächste / vorige Seite, Endlosschleife |
-| Von oben nach unten wischen (Start in den obersten 40 px) | Menü (Platzhalter) |
-| Lang drücken (0,8 s) auf eine freie Fläche oder die Statusleiste | Menü (Platzhalter) |
-| BOOT kurz | nächste Seite; ist ein Fenster offen, schließt es |
-| BOOT lang (0,8 s) | Menü (Platzhalter) |
+| Von oben nach unten wischen (Start in den obersten 40 px) | Menü |
+| Lang drücken (0,8 s) auf eine freie Fläche oder die Statusleiste | Menü (Etappe 2: nur Diagnose) |
+| BOOT kurz | nächste Seite; ist ein Fenster offen, schließt es; blendet den Startbildschirm aus |
+| BOOT lang (0,8 s) | Menü |
 | BOOT sehr lang (2 s), nur Simulator | Vollgas-Sequenz beim nächsten Halt |
 
 Fenster schließen sich nach 60 s ohne Berührung.
@@ -82,15 +104,17 @@ car-display-v2/
 │  ├─ main.cpp               startet die Tasks
 │  ├─ core/                  CarState mit Mutex und Snapshot, Befehls-Queues, calcTask
 │  ├─ hw/                    Display (TFT_eSPI + DMA, Hintergrundlicht), Touch FT6336U
-│  ├─ obd/                   obdTask (Etappe 1: nur "keine Verbindung")
+│  ├─ obd/                   BLE-Link, ELM327-Client, Antwort-Parser, PID-Scheduler, obdTask
 │  ├─ sim/                   simulierte Fahrt (reines C++) und ihre Task
-│  ├─ ui/                    Theme, Statusleiste, Fenster, Seiten, Schriften
-│  └─ util/                  Zahlenformat, BOOT-Taste, Wischgesten (reines C++)
+│  ├─ ui/                    Theme, Statusleiste, Startbildschirm, Menü, Fenster, Seiten, Schriften
+│  └─ util/                  Zahlenformat, BOOT-Taste, Wischgesten, Verbindungstexte (reines C++)
 ├─ test/                     Unit-Tests für `pio test -e native`
 └─ tools/                    Schriften erzeugen
 ```
 
 ## Fehlersuche
 
+- **"Kein Adapter gefunden":** Zündung an (der Adapter braucht Strom aus der OBD-Buchse)? Eine Handy-App, die mit dem Adapter verbunden ist, schließen; der Adapter nimmt nur eine Verbindung an. Im seriellen Monitor stehen unter "gefunden:" alle Bluetooth-Geräte in der Nähe. Steht der Adapter dort mit einem anderen Namen, diesen Namen in `include/config.h` bei `BLE_ADAPTER_NAME` eintragen.
+- **"Auto antwortet nicht":** Zündung an? Die Firmware sucht das Protokoll automatisch, beim Modus mit KWP dauert das bis zu 15 s.
 - **Bild bleibt schwarz oder zeigt Streifen:** In `include/config.h` `DISPLAY_USE_DMA` auf `0` setzen. Dann zeichnet die Firmware ohne DMA wie die alte Firmware.
 - **Wischen geht in die falsche Richtung oder Tippen trifft daneben:** Beim Tippen schreibt der serielle Monitor `Touch: roh … -> x …, y …`. Oben links sollte x und y nahe 0 sein, unten rechts x nahe 319 und y nahe 239. Stimmt das nicht, in `include/board_fnk0104b.h` `BOARD_TOUCH_SWAP_XY`, `BOARD_TOUCH_INVERT_X` und `BOARD_TOUCH_INVERT_Y` anpassen und die Monitor-Zeilen mitschicken.

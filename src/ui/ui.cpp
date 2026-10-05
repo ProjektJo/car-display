@@ -8,8 +8,10 @@
 #include "core/commands.h"
 #include "hw/display.h"
 #include "hw/touch.h"
+#include "ui/menu.h"
 #include "ui/overlay.h"
 #include "ui/pages/page.h"
+#include "ui/start_screen.h"
 #include "ui/statusbar.h"
 #include "ui/theme.h"
 #include "util/button_logic.h"
@@ -75,15 +77,7 @@ void stepPage(int dir) {
   showPage(i);
 }
 
-void closeOnClick(lv_event_t*) { overlay::close(); }
-
-// Menü: kommt in Etappe 7. Bis dahin ein Platzhalter, damit Gesten und Fenster prüfbar sind.
-void openMenu() {
-  lv_obj_t* card = overlay::open("Menü");
-  theme::label(card, &font_m12, true, "Folgt in Etappe 7.\nTippen schließt das Fenster.");
-  lv_obj_add_event_cb(card, closeOnClick, LV_EVENT_CLICKED, nullptr);                         // auf die Karte
-  lv_obj_add_event_cb(lv_obj_get_parent(card), closeOnClick, LV_EVENT_CLICKED, nullptr);  // daneben
-}
+void openMenu() { menu::open(); }
 
 void longPressCb(lv_event_t*) {
   if (!overlay::isOpen()) openMenu();
@@ -105,6 +99,7 @@ void createUi() {
     containers[i] = c;
   }
   statusbar::create(scr, longPressCb);
+  startscreen::create(scr, longPressCb);  // liegt über Seiten und Statusleiste, Fenster liegen darüber
 }
 
 void handleButton(uint32_t now) {
@@ -113,6 +108,8 @@ void handleButton(uint32_t now) {
       // ANNAHME: Ist ein Fenster offen, schließt ein kurzer Druck es, statt die Seite zu wechseln.
       if (overlay::isOpen())
         overlay::close();
+      else if (startscreen::visible())
+        startscreen::hide();
       else
         stepPage(+1);
       break;
@@ -132,7 +129,12 @@ void handleButton(uint32_t now) {
 
 void handleSwipe() {
   touch::setSwipeEnabled(!overlay::isOpen());
-  switch (touch::takeSwipe()) {
+  const Swipe sw = touch::takeSwipe();
+  if (startscreen::visible() && (sw == Swipe::Left || sw == Swipe::Right)) {
+    startscreen::hide();  // erst einmal nur den Startbildschirm weg, Seite bleibt Eco
+    return;
+  }
+  switch (sw) {
     case Swipe::Left:  // Finger nach links = nächste Seite
       stepPage(+1);
       break;
@@ -181,6 +183,8 @@ void task(void*) {
       nextSnap = now + cfg::UI_SNAPSHOT_PERIOD_MS;
       carstate::snapshot(snap);
       statusbar::update(snap);
+      startscreen::update(snap);
+      menu::update(snap);
       if (!PAGES[current]->available(snap)) stepPage(+1);  // z. B. Sensor fehlt plötzlich
       PAGES[current]->update(snap);
     }

@@ -6,6 +6,7 @@
 #include "config.h"
 #include "core/car_state_store.h"
 #include "core/commands.h"
+#include "sim/sim_link.h"
 #include "sim/simulator.h"
 
 namespace sim {
@@ -21,10 +22,16 @@ bool due(uint32_t now, uint32_t& last, uint32_t periodMs) {
 
 void task(void*) {
   DriveSim drive;
-  carstate::modify([](CarState& s) {
-    s.simulated = true;
-    s.link = LinkState::Running;
-  });
+  carstate::modify([](CarState& s) { s.simulated = true; });
+
+  // Verbindungsaufbau nachspielen (Startbildschirm), erst danach fließen Daten
+  const uint32_t start = millis();
+  for (;;) {
+    const uint32_t elapsed = millis() - start;
+    carstate::modify([&](CarState& s) { simlink::update(s.link, elapsed); });
+    if (elapsed >= simlink::T_RUNNING) break;
+    vTaskDelay(pdMS_TO_TICKS(cfg::SIM_STEP_MS));
+  }
   Serial.println("Simulator: Fahrt startet (Kaltstart)");
 
   uint32_t lastMedium = 0, lastSlow = 0, lastRare = 0;

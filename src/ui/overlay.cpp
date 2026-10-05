@@ -11,13 +11,20 @@ constexpr int32_t PAD_HOR = 12;
 constexpr int32_t PAD_VER = 10;
 constexpr int32_t TITLE_GAP = 6;
 
+constexpr int32_t DONE_W = 54;
+constexpr int32_t DONE_H = 22;
+constexpr int32_t DONE_RIGHT = 8;
+constexpr int32_t DONE_TOP = 6;
+
 lv_obj_t* dim = nullptr;
 bool autoCloseOn = true;
 uint32_t openedMs = 0;
+uint32_t gen = 0;
 }  // namespace
 
-lv_obj_t* open(const char* title, bool autoClose) {
+lv_obj_t* open(const char* title, bool autoClose, int32_t inset) {
   close();
+  gen++;
   autoCloseOn = autoClose;
   openedMs = lv_tick_get();
 
@@ -31,8 +38,8 @@ lv_obj_t* open(const char* title, bool autoClose) {
 
   lv_obj_t* card = lv_obj_create(dim);
   lv_obj_remove_style_all(card);
-  lv_obj_set_pos(card, theme::DIALOG_INSET, theme::DIALOG_INSET);
-  lv_obj_set_size(card, BOARD_LCD_HOR_RES - 2 * theme::DIALOG_INSET, BOARD_LCD_VER_RES - 2 * theme::DIALOG_INSET);
+  lv_obj_set_pos(card, inset, inset);
+  lv_obj_set_size(card, BOARD_LCD_HOR_RES - 2 * inset, BOARD_LCD_VER_RES - 2 * inset);
   lv_obj_set_style_bg_color(card, theme::c(theme::SURFACE), 0);
   lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
   lv_obj_set_style_border_color(card, theme::c(theme::LINE), 0);
@@ -55,6 +62,29 @@ void close() {
 }
 
 bool isOpen() { return dim != nullptr; }
+
+uint32_t generation() { return gen; }
+
+lv_obj_t* addDoneButton(lv_obj_t* card, lv_event_cb_t onClick) {
+  lv_obj_t* btn = lv_obj_create(card);
+  lv_obj_remove_style_all(btn);
+  lv_obj_add_flag(btn, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(btn, DONE_W, DONE_H);
+  // Ausrichtung bezieht sich auf den Innenbereich der Karte, deshalb Innenabstand herausrechnen
+  lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, PAD_HOR - DONE_RIGHT, DONE_TOP - PAD_VER);
+  lv_obj_set_style_bg_color(btn, theme::c(theme::SURFACE), 0);
+  lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(btn, theme::c(theme::LINE), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(btn, theme::c(theme::LINE), 0);
+  lv_obj_set_style_border_width(btn, 1, 0);
+  lv_obj_set_style_radius(btn, theme::RADIUS_TILE, 0);
+  lv_obj_t* l = theme::label(btn, &font_m12, false, "Fertig");
+  lv_obj_center(l);
+  if (onClick) lv_obj_add_event_cb(btn, onClick, LV_EVENT_CLICKED, nullptr);
+  return btn;
+}
 
 void tick(uint32_t nowMs, uint32_t lastTouchMs) {
   if (!dim || !autoCloseOn) return;

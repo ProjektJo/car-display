@@ -31,19 +31,50 @@ struct Val {
   float get(uint32_t nowMs) const { return fresh(nowMs) ? v : NAN; }
 };
 
-// Zustand der Verbindung zum Adapter (Startbildschirm und Verbindungspunkt, U Rahmen)
+// Zustand der Verbindung zum Adapter (Startbildschirm und Verbindungspunkt, U Rahmen, U Startbildschirm)
 enum class LinkState : uint8_t {
   Off,          // keine Verbindung, kein Versuch
   Searching,    // Suche Adapter
   Connecting,   // BLE-Verbindung wird aufgebaut
   InitAdapter,  // ELM-Init, Protokollsuche
+  ReadVehicle,  // unterstützte PIDs und VIN lesen
   Running,      // Daten fließen
-  Lost,         // Verbindung verloren, warte auf Neuversuch
+  Waiting,      // Fehler, warte auf den nächsten Versuch (linkError sagt warum)
+};
+
+// Grund des letzten Fehlers; die UI zeigt dazu einen Satz mit der Lösung (U Startbildschirm)
+enum class LinkError : uint8_t {
+  None,
+  AdapterNotFound,  // kein BLE-Adapter in Reichweite
+  ConnectFailed,    // Adapter gefunden, Verbindung klappt nicht (meist: Handy-App ist verbunden)
+  NoUart,           // Adapter ohne Dienst mit Schreib- und Benachrichtigungs-Merkmal
+  AdapterSilent,    // Adapter antwortet nicht auf ATZ
+  NoVehicle,        // Adapter da, Auto antwortet nicht (Zündung aus)
+  ConnectionLost,   // Bluetooth-Verbindung abgerissen
+};
+
+// Angaben zur Verbindung (Startbildschirm, Diagnose-Dialog). Texte sind kurz und fest begrenzt,
+// damit die Kopie für die UI klein bleibt.
+struct LinkInfo {
+  LinkState state = LinkState::Off;
+  LinkError error = LinkError::None;
+  uint8_t retryInS = 0;        // Sekunden bis zum nächsten Versuch (bei Waiting)
+  bool everRunning = false;    // seit dem Einschalten schon einmal Daten bekommen
+  char adapter[24] = "";       // BLE-Name des Adapters
+  char protocol[28] = "";      // z. B. "ISO 14230-4 KWP"
+  bool isCan = false;
+  char vin[18] = "";           // leer = nicht gelesen bzw. nicht geliefert
+  char vehicle[24] = "";       // Name des geladenen Profils
+  bool supportedKnown = false;
+  uint8_t supported[32] = {};  // Bitfeld Mode 01 PID 0x00–0xFF (Bit pid%8 in Byte pid/8)
+  float queriesPerS = NAN;     // Abfragen pro Sekunde (A7), NAN ohne Verbindung
+
+  bool pidSupported(uint8_t pid) const { return supportedKnown && (supported[pid / 8] >> (pid % 8)) & 1; }
 };
 
 struct CarState {
   // --- Verbindung ---
-  LinkState link = LinkState::Off;
+  LinkInfo link;
   bool simulated = false;
 
   // --- Rohwerte OBD Mode 01 (PID in Klammern, Takt-Klasse nach A7) ---

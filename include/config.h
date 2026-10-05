@@ -17,7 +17,7 @@ namespace cfg {
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
-constexpr const char* FW_VERSION = "2.0.0-etappe1";
+constexpr const char* FW_VERSION = "2.0.0-etappe2";
 
 // ---------------------------------------------------------------------------
 // Aufgaben und Takt (A5)
@@ -57,10 +57,47 @@ constexpr uint32_t PID_PERIOD_RARE_MS = 30000;    // selten: 30 s (A7)
 constexpr float ENGINE_RUNNING_MIN_RPM = 300.0f;
 
 // ---------------------------------------------------------------------------
+// Bluetooth und ELM327 (A6 "Beim Verbinden", A7 PID-Scheduler, M Verbindung)
+// ---------------------------------------------------------------------------
+// Name des Adapters (BLE). Leer = automatisch den ersten Adapter nehmen, dessen Name nach OBD aussieht
+// (OBD, VLINK, VGATE, ELM, ICAR, V-LINK, KONNWEI). Beispiel: "vLinker MC-IOS".
+constexpr const char* BLE_ADAPTER_NAME = "";
+// Alternativ fest per MAC-Adresse, z. B. "00:10:cc:4f:36:03". Leer = per Name.
+constexpr const char* BLE_ADAPTER_MAC = "";
+constexpr const char* BLE_DEVICE_NAME = "Car-Display";  // so meldet sich das Display selbst
+constexpr uint32_t BLE_SCAN_S = 5;                // Suche dauert 5 s (wie alte Firmware)
+constexpr uint32_t BLE_CONNECT_TIMEOUT_S = 10;    // Verbindungsaufbau höchstens 10 s
+constexpr uint32_t BLE_CHUNK_BYTES = 20;          // kleinste BLE-Nutzlast; längere Befehle in Stücken
+
+// Neuer Versuch nach einem Fehler mit wachsender Pause 1, 2, 5, 10 s, danach immer 10 s (A7)
+constexpr uint32_t RETRY_DELAYS_S[] = {1, 2, 5, 10};
+
+// Antwortzeiten des Adapters (bis zum Prompt ">")
+constexpr uint32_t ELM_RESET_TIMEOUT_MS = 3000;   // ATZ: Adapter startet neu
+constexpr uint32_t ELM_AT_TIMEOUT_MS = 1500;      // übrige AT-Befehle
+// ANNAHME: Die erste Abfrage nach ATSP0 sucht das Protokoll. KWP mit 5-Baud-Init braucht bis
+// etwa 10 s, deshalb 15 s Geduld.
+constexpr uint32_t ELM_SEARCH_TIMEOUT_MS = 15000;
+constexpr uint32_t ELM_DATA_TIMEOUT_MS = 2000;    // normale Abfrage (ATAT2 kürzt selbst)
+constexpr uint32_t ELM_VIN_TIMEOUT_MS = 5000;     // VIN kommt auf KWP in fünf Teilen
+constexpr uint32_t ELM_POLL_MS = 2;               // so oft auf neue Bytes schauen
+constexpr uint8_t OBD_MAX_PIDS_PER_REQUEST = 6;   // auf CAN bis zu 6 PIDs in einer Anfrage (A7, M)
+// ANNAHME: Nach 5 Abfragen hintereinander ohne Antwort ist die Zündung aus bzw. das Auto weg.
+// Dann wird das Protokoll neu gesucht (mit den Pausen von oben).
+constexpr uint8_t OBD_MAX_FAILED_REQUESTS = 5;
+constexpr uint32_t OBD_RATE_WINDOW_MS = 2000;     // "Abfragen pro Sekunde" über 2 s gemittelt (A7)
+// ANNAHME: Der Startbildschirm bleibt nach "Fahrzeug: …" noch 1,5 s stehen, damit man ihn lesen kann.
+constexpr uint32_t START_SCREEN_HOLD_MS = 1500;
+
+// ---------------------------------------------------------------------------
 // Fahrzeug-Standardprofil (A6), bis die Profile in Etappe 3 kommen
 // ---------------------------------------------------------------------------
 constexpr float DEFAULT_TANK_L = 49.0f;           // Renault Modus
 constexpr float RANGE_LOW_KM = 50.0f;             // Reichweite darunter: Tanksymbol und Kachel bernstein (A7, U)
+constexpr const char* DEFAULT_PROFILE_NAME = "Renault Modus";
+constexpr const char* DEFAULT_BODY_NAME = "Kleinwagen";  // Fahrzeugart (A6)
+constexpr float DEFAULT_BODY_MASS_KG = 1150.0f;
+constexpr float DEFAULT_FUEL_CAL = 1.00f;
 
 // ---------------------------------------------------------------------------
 // Display und Hintergrundlicht (A2 Nr. 5, M Hardware)
