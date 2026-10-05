@@ -38,7 +38,10 @@
 #define TFT_CS              10
 #define TFT_DC              46
 #define TFT_RST             -1    /* kein Reset-Pin */
-#define USE_HSPI_PORT       1
+/* SPI-Port: Freenove nutzt USE_HSPI_PORT, aber mit Arduino-Kern 3.x. Mit unserem Kern 2.0.x zeigt  */
+/* TFT_eSPI damit vermutlich auf das Register des Flash-Controllers (SPI1) statt auf das Display:     */
+/* Board stürzt beim tft.init ab. FSPI ist der Display-Bus SPI2, die Pins laufen über die GPIO-Matrix. */
+#define USE_FSPI_PORT       1
 #define SPI_FREQUENCY       40000000
 #define SPI_READ_FREQUENCY  16000000
 #define DISABLE_ALL_LIBRARY_WARNINGS 1  /* keine TFT_eSPI-Hinweise wie "TOUCH_CS nicht definiert" */

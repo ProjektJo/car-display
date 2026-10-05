@@ -2,7 +2,10 @@
 # App ca. 6 MB (keine OTA-Updates, Updates per USB), LittleFS 4 MB für Fahrten, Tankfüllungen, Profile.
 # NVS (Einstellungen) 92 kB. ANNAHME: Der Rest (ca. 5,8 MB) bleibt frei als Reserve und wird nicht
 # als NVS angelegt, weil NVS je Flash-Seite RAM belegt (bei 5,8 MB wären das über 100 kB).
+# Die App muss bei 0x10000 beginnen: PlatformIO flasht firmware.bin immer dorthin und boot_app0.bin
+# nach 0xe000 (otadata). Lag die App woanders, fand der Bootloader nichts und startete endlos neu.
 # Name,   Type, SubType,  Offset,   Size
-nvs,      data, nvs,      0x9000,   0x17000
-app0,     app,  factory,  0x20000,  0x600000
-spiffs,   data, spiffs,   0x620000, 0x400000
+otadata,  data, ota,      0xe000,   0x2000
+app0,     app,  factory,  0x10000,  0x600000
+nvs,      data, nvs,      0x610000, 0x17000
+spiffs,   data, spiffs,   0x630000, 0x400000
