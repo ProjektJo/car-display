@@ -101,8 +101,8 @@ void create(lv_obj_t* parent, lv_event_cb_t onLongPress) {
 void update(const CarSnapshot& s) {
   if (!root || hiddenForGood) return;
 
-  // Nach der ersten Verbindung noch kurz stehen lassen, dann für immer ausblenden
-  if (s.link.state == LinkState::Running) {
+  // Nach der ersten Verbindung mit erkanntem Fahrzeug noch kurz stehen lassen, dann für immer ausblenden
+  if (s.link.state == LinkState::Running && s.link.vehicle[0]) {
     if (runningSince == 0) runningSince = s.now ? s.now : 1;
     if (s.now - runningSince >= cfg::START_SCREEN_HOLD_MS) {
       hide();
@@ -111,7 +111,7 @@ void update(const CarSnapshot& s) {
   }
 
   linktext::Step steps[linktext::STEP_COUNT];
-  linktext::startSteps(s.link, steps);
+  linktext::startSteps(s.link, s.profile.asking, steps);
   for (int i = 0; i < linktext::STEP_COUNT; i++) {
     const linktext::Step& st = steps[i];
     if (st.kind == shown[i].kind && strcmp(st.text, shown[i].text) == 0) continue;

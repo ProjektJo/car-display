@@ -18,6 +18,7 @@ constexpr uint32_t T_RUNNING = 5500;     // Daten fließen
 
 constexpr const char* ADAPTER = "vLinker MC-IOS";
 constexpr const char* PROTOCOL = "ISO 14230-4 KWP";
+constexpr int8_t PROTOCOL_ID = 5;        // ATDPN: ISO 14230-4 KWP (schnelle Initialisierung)
 // PIDs, die der Simulator liefert (simulator.h), dazu 0x20 als Verweis auf die zweite Liste
 constexpr uint8_t PIDS[] = {0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0F, 0x11, 0x20, 0x2F, 0x40, 0x49};
 constexpr float QUERIES_PER_S = 1000.0f / cfg::SIM_STEP_MS;
@@ -26,7 +27,6 @@ constexpr float QUERIES_PER_S = 1000.0f / cfg::SIM_STEP_MS;
 inline void update(LinkInfo& li, uint32_t elapsedMs) {
   li.error = LinkError::None;
   li.retryInS = 0;
-  snprintf(li.vehicle, sizeof(li.vehicle), "%s", cfg::DEFAULT_PROFILE_NAME);
   if (elapsedMs < T_CONNECTING) {
     li.state = LinkState::Searching;
     return;
@@ -41,6 +41,7 @@ inline void update(LinkInfo& li, uint32_t elapsedMs) {
     return;
   }
   snprintf(li.protocol, sizeof(li.protocol), "%s", PROTOCOL);
+  li.protocolId = PROTOCOL_ID;
   li.isCan = false;
   if (elapsedMs < T_RUNNING) {
     li.state = LinkState::ReadVehicle;
@@ -49,6 +50,7 @@ inline void update(LinkInfo& li, uint32_t elapsedMs) {
   if (!li.supportedKnown) {
     for (uint8_t pid : PIDS) li.supported[pid / 8] |= static_cast<uint8_t>(1u << (pid % 8));
     li.supportedKnown = true;
+    li.identSeq++;  // wie obdTask: storageTask sucht jetzt das passende Profil
   }
   li.state = LinkState::Running;
   li.everRunning = true;

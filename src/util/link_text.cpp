@@ -59,15 +59,22 @@ void supported(const LinkInfo& li, char* out, size_t size) {
   if (!first && len < size) snprintf(out + len, size - len, ")");
 }
 
-const char* fuelSource(const LinkInfo& li) {
+const char* vin(const LinkInfo& li) {
+  // VIN wird zusammen mit der PID-Liste übernommen (obd_task, sim_link)
+  if (!li.supportedKnown) return fmt::NO_VALUE;
+  return li.vin[0] ? li.vin : "nicht geliefert";
+}
+
+const char* fuelSource(const LinkInfo& li, bool diesel) {
   if (!li.supportedKnown) return fmt::NO_VALUE;
   if (li.pidSupported(0x5E)) return "Kraftstoffrate (5E)";
+  if (diesel) return "nicht verfügbar";  // Luftmenge sagt beim mager laufenden Diesel nichts (A7)
   if (li.pidSupported(0x10)) return "Luftmasse (MAF)";
   if (li.pidSupported(0x0B) && li.pidSupported(0x0C)) return "Saugrohrdruck";
   return "nicht verfügbar";
 }
 
-void startSteps(const LinkInfo& li, Step out[STEP_COUNT]) {
+void startSteps(const LinkInfo& li, bool askingVehicle, Step out[STEP_COUNT]) {
   for (int i = 0; i < STEP_COUNT; i++) out[i] = Step{};
   auto set = [&](int i, StepKind k, const char* text) {
     out[i].kind = k;
@@ -98,11 +105,14 @@ void startSteps(const LinkInfo& li, Step out[STEP_COUNT]) {
       char t[48];
       snprintf(t, sizeof(t), "Protokoll: %s", li.protocol);
       set(1, StepKind::Done, t);
-      if (li.state == LinkState::ReadVehicle) {
-        set(2, StepKind::Current, "Lese Fahrzeugdaten \xE2\x80\xA6");
-      } else {
+      if (li.state == LinkState::Running && li.vehicle[0]) {
         snprintf(t, sizeof(t), "Fahrzeug: %s", li.vehicle);
         set(2, StepKind::Done, t);
+      } else if (li.state == LinkState::Running && askingVehicle) {
+        set(2, StepKind::Current, "Welches Fahrzeug?");
+      } else {
+        // Liest PID-Liste und VIN bzw. sucht das passende Profil
+        set(2, StepKind::Current, "Lese Fahrzeugdaten \xE2\x80\xA6");
       }
       break;
     }

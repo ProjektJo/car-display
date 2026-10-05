@@ -1,0 +1,391 @@
+#include "storage_task.h"
+
+#include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+
+#include <cmath>
+#include <cstring>
+
+#include "config.h"
+#include "core/calc_task.h"
+#include "core/car_state_store.h"
+#include "storage/profile_match.h"
+#include "storage/store.h"
+#include "util/format.h"
+
+namespace storage {
+
+namespace {
+
+constexpr uint32_t LOOP_MS = 50;
+constexpr uint8_t QUEUE_LEN = 8;
+
+enum class MsgType : uint8_t { SaveProfile, AppendTrip, AppendFill, Choose, Dismiss, Create };
+struct Msg {
+  MsgType type;
+  uint8_t id;
+  Profile profile;
+  trip::TripRecord trip;
+  trip::FillRecord fill;
+};
+
+QueueHandle_t queue = nullptr;
+SemaphoreHandle_t mutex = nullptr;  // schützt Speicher-Slot und Profilliste
+
+// Letzter Stand von calcTask, noch nicht geschrieben. Zwei Plätze: Beim Profilwechsel kommen das
+// alte und das neue Profil kurz nacheinander, keins darf das andere verdrängen.
+constexpr int SLOTS = 2;
+PersistState pendingState[SLOTS];
+bool pendingSave[SLOTS] = {};
+PersistState writing;        // Kopie, die gerade geschrieben wird (ohne Sperre)
+
+ProfileSummary list[cfg::MAX_PROFILES];
+int listCount = 0;
+
+uint8_t activeId = 0;        // in calcTask geladenes Profil
+uint8_t beforeAskId = 0;     // war vor der Frage geladen
+uint16_t handledIdent = 0;   // zuletzt ausgewertete Fahrzeugerkennung (LinkInfo::identSeq)
+bool asking = false;
+bool identified = false;     // seit dem Einschalten schon ein Auto einem Profil zugeordnet (nicht nur vorgeladen)
+// Was das verbundene Auto über sich verrät (aus dem CarState)
+struct CarIdent {
+  bool known = false;
+  char vin[18] = "";
+  uint8_t supported[32] = {};
+  int8_t protocol = -1;
+};
+
+CarIdent currentCar() {
+  CarIdent c;
+  CarState& s = carstate::lock();
+  c.known = s.link.supportedKnown;
+  snprintf(c.vin, sizeof(c.vin), "%s", s.link.vin);
+  memcpy(c.supported, s.link.supported, sizeof(c.supported));
+  c.protocol = s.link.protocolId;
+  carstate::unlock();
+  return c;
+}
+
+void send(const Msg& m) {
+  if (queue && xQueueSend(queue, &m, 0) != pdTRUE) Serial.println("Speicher: Warteschlange voll, Auftrag verworfen");
+}
+
+void refreshList() {
+  static ProfileSummary fresh[cfg::MAX_PROFILES];
+  const int n = store::listProfiles(fresh, cfg::MAX_PROFILES);
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  memcpy(list, fresh, sizeof(list));
+  listCount = n;
+  xSemaphoreGive(mutex);
+  carstate::modify([&](CarState& s) { s.profile.count = static_cast<uint8_t>(n); });
+}
+
+void setAsking(bool on) {
+  asking = on;
+  carstate::modify([&](CarState& s) {
+    if (on && !s.profile.asking) s.profile.askSeq++;
+    s.profile.asking = on;
+  });
+}
+
+// Profil merkt sich das Auto, mit dem es gewählt bzw. angelegt wird (A6)
+void adoptCar(Profile& p) {
+  const CarIdent car = currentCar();
+  if (!car.known) return;
+  memcpy(p.supported, car.supported, sizeof(p.supported));
+  p.protocol = car.protocol;
+  if (car.vin[0]) snprintf(p.vin, sizeof(p.vin), "%s", car.vin);
+}
+
+// ANNAHME: Ein Auto gehört zu genau einem Profil. Wird es einem Profil von Hand zugeordnet, vergessen
+// die anderen Profile, die bisher dazu passten, VIN, PID-Liste und Protokoll. Sonst würde bei jedem
+// Start wieder gefragt (gleiche PID-Liste) bzw. die Wahl über die VIN rückgängig gemacht.
+void releaseOthers(uint8_t keepId) {
+  const CarIdent car = currentCar();
+  if (!car.known) return;
+  static ProfileSummary copy[cfg::MAX_PROFILES];
+  const int n = summaries(copy, cfg::MAX_PROFILES);
+  static Profile p;
+  for (int i = 0; i < n; i++) {
+    if (copy[i].id == keepId || !profileFitsCar(copy[i], car.vin, car.supported, car.protocol)) continue;
+    if (!store::loadProfile(copy[i].id, p)) continue;
+    p.vin[0] = '\0';
+    memset(p.supported, 0, sizeof(p.supported));
+    p.protocol = -1;
+    store::saveProfile(p);
+    Serial.printf("Profil: %s passt nicht mehr automatisch zu diesem Auto\n", p.name);
+  }
+}
+
+bool activate(uint8_t id) {
+  static Profile p;
+  static PersistState st;
+  if (!store::loadProfile(id, p)) {
+    Serial.printf("Speicher: Profil %u nicht lesbar\n", id);
+    return false;
+  }
+  // Schon geladen: nicht neu laden, sonst gingen die Summen seit dem letzten Speichern verloren
+  if (id != activeId) {
+    const bool haveState = store::loadState(id, st);
+    calc::requestLoad(&p, haveState ? &st : nullptr);
+    Serial.printf("Profil: %s geladen (%s)\n", p.name, haveState ? "mit gespeicherten Summen" : "neu");
+  }
+  activeId = id;
+  store::setLastProfileId(id);
+  carstate::modify([&](CarState& s) {
+    s.profile.id = id;
+    snprintf(s.profile.name, sizeof(s.profile.name), "%s", p.name);
+    s.profile.body = p.body;
+    s.profile.diesel = p.fuel == FuelType::Diesel;
+    s.profile.fuelCal = p.fuelCal;
+    s.profile.tankL = p.tankL;
+    snprintf(s.link.vehicle, sizeof(s.link.vehicle), "%s", p.name);
+  });
+  return true;
+}
+
+void deactivate() {
+  if (activeId) beforeAskId = activeId;
+  calc::requestLoad(nullptr, nullptr);
+  activeId = 0;
+  carstate::modify([](CarState& s) {
+    s.profile.id = 0;
+    s.profile.name[0] = '\0';
+    s.link.vehicle[0] = '\0';
+  });
+}
+
+// Neues Profil mit den Werten des Assistenten bzw. den Standardwerten
+uint8_t create(Profile p) {
+  p.id = 0;
+  adoptCar(p);
+  if (!store::saveProfile(p)) {
+    Serial.println("Speicher: Profil konnte nicht angelegt werden (voll?)");
+    return 0;
+  }
+  refreshList();
+  Serial.printf("Profil: %s angelegt (Nr. %u)\n", p.name, p.id);
+  return p.id;
+}
+
+// Fertig ausgelesenes Auto einem Profil zuordnen (A6 "Profil erkennen")
+void identify() {
+  const CarIdent car = currentCar();
+  if (!car.known) return;
+  static ProfileSummary copy[cfg::MAX_PROFILES];
+  const int n = summaries(copy, cfg::MAX_PROFILES);
+  // Neu verbunden (Funkloch, Zündung kurz aus): Das Profil bleibt, solange das Auto keine andere VIN
+  // meldet. Eine fehlende Antwort auf VIN oder PID-Liste soll nicht mitten in der Fahrt fragen.
+  if (identified && activeId) {
+    bool otherVin = false;
+    for (int i = 0; i < n; i++)
+      if (copy[i].id == activeId) otherVin = car.vin[0] && copy[i].vin[0] && strcmp(car.vin, copy[i].vin) != 0;
+    if (!otherVin) return;
+  }
+  const ProfileMatch m = matchProfile(copy, n, car.vin, car.supported, car.protocol);
+  if (m.kind == ProfileMatch::Kind::One) {
+    if (m.learnVin) {
+      static Profile p;
+      if (store::loadProfile(m.id, p)) {
+        snprintf(p.vin, sizeof(p.vin), "%s", car.vin);
+        store::saveProfile(p);
+        refreshList();
+      }
+    }
+    activate(m.id);
+    identified = true;
+    setAsking(false);
+    return;
+  }
+  Serial.printf("Profil: %s, frage \"Welches Fahrzeug?\"\n",
+                m.kind == ProfileMatch::Kind::None ? "kein passendes" : "mehrere passende");
+  deactivate();  // nichts zählen, bis das Auto feststeht
+  setAsking(true);
+}
+
+void handle(const Msg& m) {
+  switch (m.type) {
+    case MsgType::SaveProfile: {
+      // calcTask ändert nur, was es selbst lernt (fuel_cal). Alles andere kommt aus der Datei, damit
+      // die Kopie in calcTask nicht überschreibt, was hier inzwischen dazukam (VIN, PID-Liste).
+      static Profile p;
+      if (!store::loadProfile(m.profile.id, p)) p = m.profile;
+      p.fuelCal = m.profile.fuelCal;
+      if (store::saveProfile(p)) refreshList();
+      carstate::modify([&](CarState& s) {
+        if (s.profile.id == p.id) s.profile.fuelCal = p.fuelCal;
+      });
+      break;
+    }
+    case MsgType::AppendTrip:
+      if (store::appendTrip(m.id, m.trip)) {
+        char km[12];
+        fmt::number(km, sizeof(km), m.trip.km, 1);
+        Serial.printf("Fahrtenbuch: Fahrt %u mit %s km gespeichert\n", m.trip.number, km);
+      }
+      break;
+    case MsgType::AppendFill:
+      store::appendFill(m.id, m.fill);
+      break;
+    case MsgType::Choose: {
+      static Profile p;
+      if (!store::loadProfile(m.id, p)) break;
+      adoptCar(p);
+      store::saveProfile(p);
+      releaseOthers(m.id);
+      refreshList();
+      activate(m.id);
+      identified = currentCar().known;
+      setAsking(false);
+      break;
+    }
+    case MsgType::Dismiss: {
+      if (!asking) break;
+      // ANNAHME: Wer die Frage ohne Wahl schließt, fährt mit dem vorher geladenen bzw. zuletzt
+      // benutzten Profil weiter; gibt es noch keins, entsteht eins mit den Standardwerten (A6).
+      uint8_t id = beforeAskId ? beforeAskId : store::lastProfileId();
+      Profile probe;
+      if (!id || !store::loadProfile(id, probe)) {
+        Profile p;
+        snprintf(p.name, sizeof(p.name), "%s", cfg::DEFAULT_PROFILE_NAME);
+        p.applyDerivedDefaults();
+        id = create(p);
+      }
+      if (id) activate(id);
+      identified = id && currentCar().known;
+      setAsking(false);
+      break;
+    }
+    case MsgType::Create: {
+      const uint8_t id = create(m.profile);
+      if (id) {
+        releaseOthers(id);
+        refreshList();
+        activate(id);
+        identified = currentCar().known;
+      }
+      setAsking(false);
+      break;
+    }
+  }
+}
+
+}  // namespace
+
+void init() {
+  queue = xQueueCreate(QUEUE_LEN, sizeof(Msg));
+  mutex = xSemaphoreCreateMutex();
+}
+
+void requestSave(const PersistState& st) {
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  // Platz mit demselben Profil überschreiben, sonst einen freien nehmen (sonst den zweiten)
+  int slot = SLOTS - 1;
+  for (int i = SLOTS - 1; i >= 0; i--)
+    if (!pendingSave[i] || pendingState[i].profileId == st.profileId) slot = i;
+  for (int i = 0; i < SLOTS; i++)
+    if (pendingSave[i] && pendingState[i].profileId == st.profileId) slot = i;
+  pendingState[slot] = st;
+  pendingSave[slot] = true;
+  xSemaphoreGive(mutex);
+}
+
+void saveProfile(const Profile& p) {
+  static Msg m;  // nur von calcTask aufgerufen
+  m.type = MsgType::SaveProfile;
+  m.profile = p;
+  send(m);
+}
+
+void appendTrip(uint8_t profileId, const trip::TripRecord& r) {
+  static Msg m;  // nur von calcTask aufgerufen
+  m.type = MsgType::AppendTrip;
+  m.id = profileId;
+  m.trip = r;
+  send(m);
+}
+
+void appendFill(uint8_t profileId, const trip::FillRecord& r) {
+  static Msg m;  // nur von calcTask aufgerufen
+  m.type = MsgType::AppendFill;
+  m.id = profileId;
+  m.fill = r;
+  send(m);
+}
+
+void chooseProfile(uint8_t id) {
+  static Msg m;  // nur von uiTask aufgerufen
+  m.type = MsgType::Choose;
+  m.id = id;
+  send(m);
+}
+
+void dismissChoice() {
+  static Msg m;  // nur von uiTask aufgerufen
+  m.type = MsgType::Dismiss;
+  send(m);
+}
+
+void createProfile(const Profile& p) {
+  static Msg m;  // nur von uiTask aufgerufen
+  m.type = MsgType::Create;
+  m.profile = p;
+  send(m);
+}
+
+int summaries(ProfileSummary* out, int max) {
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  const int n = listCount < max ? listCount : max;
+  memcpy(out, list, sizeof(ProfileSummary) * n);
+  xSemaphoreGive(mutex);
+  return n;
+}
+
+void begin() {
+  store::begin();
+  refreshList();
+  // Zuletzt benutztes Profil gleich laden: Mittelwerte, Tank und Reichweite stehen schon vor dem
+  // Verbinden da. Passt das Auto nicht dazu, wechselt die Erkennung bzw. es kommt die Frage.
+  const uint8_t last = store::lastProfileId();
+  if (last) activate(last);
+}
+
+void poll() {
+  Msg m;
+  while (xQueueReceive(queue, &m, 0) == pdTRUE) handle(m);
+
+  for (int i = 0; i < SLOTS; i++) {
+    bool doSave = false;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    if (pendingSave[i]) {
+      writing = pendingState[i];
+      pendingSave[i] = false;
+      doSave = true;
+    }
+    xSemaphoreGive(mutex);
+    if (doSave && !store::saveState(writing)) Serial.println("Speicher: Summen konnten nicht gespeichert werden");
+  }
+
+  uint16_t ident = 0;
+  {
+    CarState& s = carstate::lock();
+    ident = s.link.identSeq;
+    carstate::unlock();
+  }
+  if (ident != handledIdent) {
+    handledIdent = ident;
+    identify();
+  }
+}
+
+void task(void*) {
+  begin();
+  for (;;) {
+    poll();
+    vTaskDelay(pdMS_TO_TICKS(LOOP_MS));
+  }
+}
+
+}  // namespace storage

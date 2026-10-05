@@ -16,6 +16,10 @@ lv_obj_t* open(const char* title, bool autoClose = true, int32_t inset = theme::
 void close();
 bool isOpen();
 
+// Wird einmal aufgerufen, wenn das aktuelle Fenster schließt (auch durch Zeitablauf, BOOT-Taste
+// oder ein anderes Fenster). Gilt nur für das gerade offene Fenster; nullptr entfernt ihn.
+void setOnClose(void (*cb)());
+
 // Zählt jedes geöffnete Fenster hoch. Wer Inhalte eines Fensters später ändert, merkt sich die
 // Nummer beim Öffnen und prüft sie, denn ein anderes Fenster kann es inzwischen ersetzt haben.
 uint32_t generation();

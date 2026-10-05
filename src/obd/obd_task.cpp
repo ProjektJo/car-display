@@ -121,6 +121,7 @@ LinkError readSupported(uint8_t bits[32]) {
   carstate::modify([&](CarState& s) {
     s.link.state = LinkState::ReadVehicle;
     s.link.isCan = elmp::protocolIsCan(number);
+    s.link.protocolId = static_cast<int8_t>(number);
     snprintf(s.link.protocol, sizeof(s.link.protocol), "%s", elmp::protocolName(number));
   });
   Serial.printf("OBD: Protokoll %d (%s)\n", number, elmp::protocolName(number));
@@ -239,11 +240,7 @@ LinkError runLoop() {
 }  // namespace
 
 void task(void*) {
-  carstate::modify([](CarState& s) {
-    s.simulated = false;
-    // ANNAHME: Bis die Fahrzeugprofile in Etappe 3 kommen, gilt immer das Standardprofil.
-    snprintf(s.link.vehicle, sizeof(s.link.vehicle), "%s", cfg::DEFAULT_PROFILE_NAME);
-  });
+  carstate::modify([](CarState& s) { s.simulated = false; });
   ble::begin();
   char name[sizeof(LinkInfo::adapter)] = "";
   char version[32];
@@ -292,6 +289,7 @@ void task(void*) {
       s.link.state = LinkState::Running;
       s.link.error = LinkError::None;
       s.link.everRunning = true;
+      s.link.identSeq++;  // storageTask sucht jetzt das passende Profil (A6)
       can = s.link.isCan;
     });
     retryStep = 0;

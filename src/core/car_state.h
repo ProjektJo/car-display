@@ -62,20 +62,36 @@ struct LinkInfo {
   bool everRunning = false;    // seit dem Einschalten schon einmal Daten bekommen
   char adapter[24] = "";       // BLE-Name des Adapters
   char protocol[28] = "";      // z. B. "ISO 14230-4 KWP"
+  int8_t protocolId = -1;      // ELM-Protokollnummer (ATDPN), -1 = unbekannt
   bool isCan = false;
   char vin[18] = "";           // leer = nicht gelesen bzw. nicht geliefert
-  char vehicle[24] = "";       // Name des geladenen Profils
+  char vehicle[33] = "";       // Name des geladenen Profils
   bool supportedKnown = false;
   uint8_t supported[32] = {};  // Bitfeld Mode 01 PID 0x00–0xFF (Bit pid%8 in Byte pid/8)
   float queriesPerS = NAN;     // Abfragen pro Sekunde (A7), NAN ohne Verbindung
+  uint16_t identSeq = 0;       // zählt jedes fertige Auslesen von PID-Liste und VIN hoch (Profil erkennen)
 
   bool pidSupported(uint8_t pid) const { return supportedKnown && (supported[pid / 8] >> (pid % 8)) & 1; }
+};
+
+// Geladenes Fahrzeugprofil (A6), für Statusleiste, Startbildschirm und Dialoge
+struct ProfileInfo {
+  uint8_t id = 0;              // 0 = keins geladen
+  char name[33] = "";
+  bool asking = false;         // "Welches Fahrzeug?" offen: kein Profil passt eindeutig
+  uint16_t askSeq = 0;         // zählt jede neue Frage hoch (UI öffnet die Auswahl einmal je Frage)
+  uint8_t count = 0;           // Anzahl gespeicherter Profile
+  uint8_t body = 0;            // Fahrzeugart (Index in cfg::BODY_TYPES)
+  bool diesel = false;
+  float fuelCal = NAN;
+  float tankL = NAN;
 };
 
 struct CarState {
   // --- Verbindung ---
   LinkInfo link;
   bool simulated = false;
+  ProfileInfo profile;
 
   // --- Rohwerte OBD Mode 01 (PID in Klammern, Takt-Klasse nach A7) ---
   Val speed{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // km/h (0x0D)
@@ -97,9 +113,22 @@ struct CarState {
   Val mil{NAN, 0, cfg::PID_PERIOD_RARE_MS};            // Motorkontrollleuchte 0/1 (0x01)
   Val dtcCount{NAN, 0, cfg::PID_PERIOD_RARE_MS};       // Anzahl gespeicherter Fehlercodes (0x01)
 
-  // --- Abgeleitete Werte (calcTask) ---
-  Val tankL{NAN, 0, cfg::PID_PERIOD_SLOW_MS};          // Liter im Tank
-  Val rangeKm{NAN, 0, cfg::PID_PERIOD_SLOW_MS};        // Reichweite km (ab Etappe 3)
+  // --- Abgeleitete Werte (calcTask, jede 100 ms; NAN = nicht berechenbar) ---
+  Val fuelLph{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // Momentanverbrauch l/h (1-s-Mittel)
+  Val fuelL100{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Momentanverbrauch l/100 km, ab 5 km/h
+  bool fuelCut = false;                                 // Schubabschaltung aktiv
+  Val avg1{NAN, 0, cfg::PID_PERIOD_FAST_MS};           // Ø letzter Kilometer
+  Val avg10{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // Ø 10 km
+  Val avg100{NAN, 0, cfg::PID_PERIOD_FAST_MS};         // Ø 100 km
+  Val avgTank{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // Ø seit dem Tanken
+  Val avgTrip{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // Ø Fahrt
+  Val avgProfile{NAN, 0, cfg::PID_PERIOD_FAST_MS};     // Ø seit Profilanlage
+  Val tankL{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // Liter im Tank (0x2F bzw. Tankmodell)
+  Val rangeKm{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // Reichweite km
+  Val tripKm{NAN, 0, cfg::PID_PERIOD_FAST_MS};
+  Val tripL{NAN, 0, cfg::PID_PERIOD_FAST_MS};
+  Val tripCost{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Euro mit Mischpreis
+  Val mixPrice{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Ø-Preis im Tank €/l
 
   // --- Optionale Sensoren (Etappe 8) ---
   bool hasImu = false;

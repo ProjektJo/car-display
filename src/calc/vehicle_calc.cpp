@@ -1,0 +1,355 @@
+#include "vehicle_calc.h"
+
+#include <cstring>
+#include <initializer_list>
+
+#include "config.h"
+
+void initPersist(PersistState& st, uint8_t profileId) {
+  memset(&st, 0, sizeof(st));
+  st.magic = PERSIST_MAGIC;
+  st.version = PERSIST_VERSION;
+  st.profileId = profileId;
+  st.ring1.init(cfg::AVG1_SLOTS, cfg::AVG1_SLOT_M);
+  st.ring10.init(cfg::AVG10_SLOTS, cfg::AVG10_SLOT_M);
+  st.ring100.init(cfg::AVG100_SLOTS, cfg::AVG100_SLOT_M);
+  st.prevFillL100 = NAN;
+  st.fills.clear();
+  st.mixPrice = NAN;
+  st.pumpPrice = NAN;
+  st.levelAtStopPct = NAN;
+  st.coolantLastC = NAN;
+  st.trip.maxCoolantC = NAN;
+}
+
+void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t nowMs) {
+  profile_ = p;
+  if (saved && saved->magic == PERSIST_MAGIC && saved->version == PERSIST_VERSION && saved->profileId == p.id) {
+    st_ = *saved;
+  } else {
+    initPersist(st_, p.id);
+  }
+  active_ = true;
+  out_ = Outputs{};
+  tripDecided_ = false;
+  coolantAtStopC_ = st_.coolantLastC;  // letzter gespeicherter Wert = "beim Abstellen" (A8)
+  hasTripRecord_ = false;
+  profileChanged_ = false;
+  throttleClosed_ = NAN;
+  engineOffSinceMs_ = 0;
+  standstillSinceMs_ = 0;
+  standstillSaved_ = false;
+  saveNow_ = false;
+  lastSaveMs_ = nowMs;  // erst eine Minute nach dem Laden wieder regulär speichern
+  kmAtSave_ = st_.totalKm;
+  litersAtSave_ = st_.totalL;
+  levelSmooth_ = NAN;
+  for (int i = 0; i < WIN; i++) winDt_[i] = 0;
+}
+
+// Beim Start entscheiden, ob die gespeicherte Fahrt weiterläuft (A8 Fahrt-Ende ohne Uhr).
+// ANNAHME: Ohne Kühlmitteltemperatur (0x05 nicht unterstützt) und ohne GPS beginnt immer eine neue Fahrt.
+void VehicleCalc::decideTrip(const CarState& s, uint32_t nowMs) {
+  const float coolant = s.coolant.get(nowMs);
+  const bool coolantMissing = s.link.supportedKnown && !s.link.pidSupported(0x05);
+  if (std::isnan(coolant) && !coolantMissing) return;  // warten, bis der erste Wert da ist
+  tripDecided_ = true;
+  if (st_.trip.active && trip::continues(coolantAtStopC_, coolant)) return;
+  finishTrip();
+  trip::start(st_.trip, ++st_.lastTripNumber);
+}
+
+void VehicleCalc::finishTrip() {
+  if (st_.trip.active && st_.trip.km >= cfg::TRIP_MIN_RECORD_KM) {
+    tripRecord_ = trip::toRecord(st_.trip, profile_.id);
+    hasTripRecord_ = true;
+  }
+  st_.trip.active = 0;
+  saveNow_ = true;
+}
+
+void VehicleCalc::endTrip() {
+  if (!active_) return;
+  finishTrip();
+}
+
+void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
+  if (!active_ || !(dtS > 0)) return;
+  const LinkInfo& li = s.link;
+
+  fuel::Input in;
+  in.speedKmh = s.speed.get(nowMs);
+  in.rpm = s.rpm.get(nowMs);
+  in.mapKpa = s.map.get(nowMs);
+  in.iatC = s.iat.get(nowMs);
+  in.stftPct = s.stft.get(nowMs);
+  in.ltftPct = s.ltft.get(nowMs);
+  in.mafGs = s.maf.get(nowMs);
+  in.fuelRateLph = s.fuelRate.get(nowMs);
+  in.lambda = s.lambdaCmd.get(nowMs);
+  in.fuelSys = s.fuelSys.get(nowMs);
+  in.throttlePct = s.throttle.get(nowMs);
+
+  const fuel::Source src = fuel::chooseSource(profile_.fuel, li.pidSupported(0x5E), li.pidSupported(0x10),
+                                              li.pidSupported(0x0B), li.pidSupported(0x0C));
+  out_.source = src;
+  fuel::Engine eng;
+  eng.fuel = profile_.fuel;
+  eng.displacementL = profile_.displacementL;
+  eng.ve = profile_.ve;
+  eng.fuelCal = profile_.fuelCal;
+
+  const bool engineOn = !std::isnan(in.rpm) && in.rpm > cfg::ENGINE_RUNNING_MIN_RPM;
+  const bool engineOff = !engineOn;  // ohne Drehzahl-Meldung (Zündung aus, Adapter weg) zählt der Motor als aus
+
+  if (engineOn && !std::isnan(in.throttlePct) && (std::isnan(throttleClosed_) || in.throttlePct < throttleClosed_))
+    throttleClosed_ = in.throttlePct;
+
+  // Verbrauch dieses Schritts: Schub = exakt 0 (A7), Motor aus = 0, sonst aus der Quelle
+  bool cut = false;
+  float lph = NAN;
+  if (engineOn) {
+    cut = fuel::isFuelCut(li.pidSupported(0x03), in, throttleClosed_);
+    lph = cut ? 0.0f : fuel::rateLph(src, eng, in);
+  } else if (!std::isnan(in.rpm)) {
+    lph = 0.0f;
+  }
+  out_.fuelCut = cut;
+
+  const float dm = std::isnan(in.speedKmh) ? 0.0f : in.speedKmh / 3.6f * dtS * profile_.kmFactor;  // Meter
+  const float dml = std::isnan(lph) ? 0.0f : lph / 3.6f * dtS;                                      // Milliliter
+  const float dkm = dm / 1000.0f, dl = dml / 1000.0f;
+
+  // Mittelwerte, Summen, Kalibrierzeitraum, Tankmodell. Ohne bekannten Verbrauch (Quelle fehlt oder
+  // Werte veraltet) zählt auch die Strecke dort nicht, sonst fielen die Schnitte zu niedrig aus.
+  const bool fuelKnown = !std::isnan(lph);
+  if (fuelKnown && (dm > 0 || dml > 0)) {
+    st_.ring1.add(dm, dml);
+    st_.ring10.add(dm, dml);
+    st_.ring100.add(dm, dml);
+    st_.totalKm += dkm;
+    st_.totalL += dl;
+    st_.fillKm += dkm;
+    st_.fillL += dl;
+    if (st_.hadFullFill) {
+      st_.calKm += dkm;
+      st_.calComputedL += dl;
+    }
+    if (st_.tankModelValid) {
+      st_.tankModelL -= dl;
+      if (st_.tankModelL < 0) st_.tankModelL = 0;
+    }
+  }
+
+  // Kühlmittel merken (beim nächsten Start der Wert "beim Abstellen")
+  const float coolant = s.coolant.get(nowMs);
+  if (!std::isnan(coolant)) st_.coolantLastC = coolant;
+  const float level = s.fuelLevel.get(nowMs);
+  if (!std::isnan(level)) st_.levelAtStopPct = level;
+
+  // Fahrt
+  if (!tripDecided_) decideTrip(s, nowMs);
+  if (tripDecided_) {
+    if (!st_.trip.active && engineOn) trip::start(st_.trip, ++st_.lastTripNumber);
+    if (st_.trip.active) {
+      trip::TripState& t = st_.trip;
+      // Strecke ohne Verbrauch nur, wenn es gar keine Quelle gibt (dann zeigt Ø Fahrt "–"); kurze
+      // Lücken lässt die Fahrt aus wie die Schnitte
+      if (fuelKnown || src == fuel::Source::None) t.km += dkm;
+      t.liters += dl;
+      if (engineOn) {
+        t.durationS += dtS;
+        if (!std::isnan(in.speedKmh) && in.speedKmh < 1.0f) {
+          t.idleS += dtS;
+          t.idleL += dl;
+        }
+        if (cut) t.cutS += dtS;
+        if (in.rpm > t.maxRpm) t.maxRpm = in.rpm;
+      }
+      if (!std::isnan(coolant) && (std::isnan(t.maxCoolantC) || coolant > t.maxCoolantC)) t.maxCoolantC = coolant;
+      if (dl > 0 && !std::isnan(st_.mixPrice)) {
+        t.cost += dl * st_.mixPrice;
+        t.costKnown = 1;
+      }
+    }
+  }
+  // Strom bleibt bei Zündung aus an: 5 min ohne Motor beendet die Fahrt (A8)
+  if (engineOn) {
+    engineOffSinceMs_ = 0;
+  } else {
+    if (engineOffSinceMs_ == 0) engineOffSinceMs_ = nowMs ? nowMs : 1;
+    if (tripDecided_ && st_.trip.active && nowMs - engineOffSinceMs_ >= cfg::TRIP_ENGINE_OFF_END_MS) finishTrip();
+  }
+
+  // Stillstand über 10 s: einmal speichern (A8)
+  const bool standing = engineOff || (!std::isnan(in.speedKmh) && in.speedKmh < 1.0f);
+  if (standing) {
+    if (standstillSinceMs_ == 0) standstillSinceMs_ = nowMs ? nowMs : 1;
+  } else {
+    standstillSinceMs_ = 0;
+    standstillSaved_ = false;
+  }
+
+  // Momentanverbrauch: 1-s-Fenster
+  if (std::isnan(lph)) {
+    for (int i = 0; i < WIN; i++) winDt_[i] = 0;  // Lücke: ältere Werte gelten nicht mehr als "momentan"
+  } else {
+    winHead_ = (winHead_ + 1) % WIN;
+    winDt_[winHead_] = dtS;
+    winLph_[winHead_] = lph * dtS;
+    winSpeed_[winHead_] = std::isnan(in.speedKmh) ? NAN : in.speedKmh * dtS;
+  }
+  updateOutputs(s, nowMs, dtS);
+}
+
+void VehicleCalc::updateOutputs(const CarState& s, uint32_t nowMs, float dtS) {
+  // 1-s-Mittel aus den jüngsten Schritten
+  float t = 0, l = 0, v = 0;
+  bool speedOk = true;
+  for (int n = 0; n < WIN && t < cfg::INSTANT_WINDOW_MS / 1000.0f; n++) {
+    const int i = (winHead_ - n + WIN) % WIN;
+    if (winDt_[i] <= 0) break;
+    t += winDt_[i];
+    l += winLph_[i];
+    if (std::isnan(winSpeed_[i])) speedOk = false; else v += winSpeed_[i];
+  }
+  if (t > 0) {
+    out_.instLph = out_.fuelCut ? 0.0f : l / t;
+    out_.instL100 = speedOk ? fuel::litersPer100(out_.instLph, v / t) : NAN;
+  } else {
+    out_.instLph = out_.instL100 = NAN;
+  }
+
+  out_.avg1 = st_.ring1.l100();
+  out_.avg10 = st_.ring10.l100();
+  out_.avg100 = st_.ring100.l100();
+  out_.avgTank = avg::tankL100(static_cast<float>(st_.fillKm), static_cast<float>(st_.fillL), st_.prevFillL100);
+  out_.avgTrip = st_.trip.active ? avg::simpleL100(static_cast<float>(st_.trip.km), static_cast<float>(st_.trip.liters)) : NAN;
+  out_.avgProfile = avg::simpleL100(static_cast<float>(st_.totalKm), static_cast<float>(st_.totalL));
+  out_.avgFills = st_.fills.l100();
+  if (out_.source == fuel::Source::None) {
+    // ohne Verbrauchsquelle (z. B. Diesel ohne 0x5E) gibt es keine Schnitte
+    out_.avg1 = out_.avg10 = out_.avg100 = out_.avgTank = out_.avgTrip = out_.avgProfile = out_.avgFills = NAN;
+  }
+
+  // Tankinhalt: mit 0x2F aus dem geglätteten Füllstand, sonst Tankmodell (A7)
+  const float level = s.fuelLevel.get(nowMs);
+  if (s.link.pidSupported(0x2F) && !std::isnan(level)) {
+    const float a = dtS / cfg::TANK_LEVEL_TAU_S;
+    levelSmooth_ = std::isnan(levelSmooth_) ? level : levelSmooth_ + (a > 1 ? 1 : a) * (level - levelSmooth_);
+    out_.tankL = levelSmooth_ / 100.0f * profile_.tankL;
+  } else if (st_.tankModelValid) {
+    out_.tankL = static_cast<float>(st_.tankModelL);
+  } else {
+    out_.tankL = NAN;
+  }
+
+  // Reichweite: nur die Prognose wird geglättet; unter 80 km vorsichtig mit dem höchsten Schnitt (A7)
+  const float raw = fuel::prognosis(out_.avg100, out_.avg10, out_.avgFills);
+  if (std::isnan(raw)) {
+    out_.prognosis = NAN;
+  } else if (std::isnan(out_.prognosis)) {
+    out_.prognosis = raw;
+  } else {
+    const float a = dtS / cfg::RANGE_TAU_S;
+    out_.prognosis += (a > 1 ? 1 : a) * (raw - out_.prognosis);
+  }
+  out_.rangeKm = fuel::rangeKm(out_.tankL, out_.prognosis);
+  if (!std::isnan(out_.rangeKm) && out_.rangeKm < cfg::RANGE_CAUTIOUS_KM) {
+    float worst = NAN;
+    for (float x : {out_.avg100, out_.avg10, out_.avgFills})
+      if (!std::isnan(x) && (std::isnan(worst) || x > worst)) worst = x;
+    if (!std::isnan(worst)) out_.rangeKm = fuel::rangeKm(out_.tankL, worst);
+  }
+
+  const trip::TripState& tr = st_.trip;
+  out_.tripKm = tr.active ? static_cast<float>(tr.km) : NAN;
+  out_.tripL = tr.active ? static_cast<float>(tr.liters) : NAN;
+  out_.tripCost = (tr.active && tr.costKnown) ? static_cast<float>(tr.cost) : NAN;
+  out_.tripDurationS = tr.active ? static_cast<float>(tr.durationS) : NAN;
+  out_.mixPrice = st_.mixPrice;
+  out_.pumpPrice = st_.pumpPrice;
+}
+
+bool VehicleCalc::takeTripRecord(trip::TripRecord& r) {
+  if (!hasTripRecord_) return false;
+  r = tripRecord_;
+  hasTripRecord_ = false;
+  return true;
+}
+
+bool VehicleCalc::takeProfileChanged() {
+  const bool c = profileChanged_;
+  profileChanged_ = false;
+  return c;
+}
+
+bool VehicleCalc::saveDue(uint32_t nowMs) const {
+  if (!active_) return false;
+  if (saveNow_) return true;
+  // regelmäßig nur, wenn sich etwas getan hat (Flash schonen, wenn das Display dauerhaft Strom hat)
+  if (nowMs - lastSaveMs_ >= cfg::SAVE_PERIOD_MS && (st_.totalKm != kmAtSave_ || st_.totalL != litersAtSave_))
+    return true;
+  return standstillSinceMs_ != 0 && !standstillSaved_ && nowMs - standstillSinceMs_ >= cfg::SAVE_STANDSTILL_MS;
+}
+
+void VehicleCalc::markSaved(uint32_t nowMs) {
+  lastSaveMs_ = nowMs;
+  kmAtSave_ = st_.totalKm;
+  litersAtSave_ = st_.totalL;
+  saveNow_ = false;
+  // zählt nur als Stillstands-Speicherung, wenn der Halt schon 10 s dauert
+  if (standstillSinceMs_ != 0 && nowMs - standstillSinceMs_ >= cfg::SAVE_STANDSTILL_MS) standstillSaved_ = true;
+  st_.seq++;
+}
+
+trip::FillRecord VehicleCalc::refuel(float liters, float price, bool full, trip::FillSource src, bool& calApplied) {
+  calApplied = false;
+  trip::FillRecord r;
+  memset(&r, 0, sizeof(r));
+  r.number = ++st_.lastFillNumber;
+  r.profileId = profile_.id;
+  r.full = full ? 1 : 0;
+  r.kmSinceLast = static_cast<float>(st_.fillKm);
+  r.liters = liters;
+  r.price = price;
+  r.l100 = st_.fillKm > 0 ? static_cast<float>(st_.fillL / st_.fillKm * 100.0) : NAN;
+  // ANNAHME: Kosten je 100 km der abgelaufenen Strecke mit dem Mischpreis, der dort galt
+  r.costPer100 = std::isnan(r.l100) ? NAN : r.l100 * (std::isnan(st_.mixPrice) ? price : st_.mixPrice);
+  r.source = src;
+
+  const float rest = out_.tankL;
+  if (!std::isnan(price)) {  // ohne Preis bleibt der bisherige Mischpreis
+    st_.mixPrice = fuel::mixPrice(rest, st_.mixPrice, liters, price);
+    st_.pumpPrice = price;
+  }
+
+  // ANNAHME: Ohne bekannten Rest ergibt erst eine Vollbetankung ein gültiges Tankmodell.
+  const float model = fuel::tankAfterRefuel(rest, liters, full, profile_.tankL);
+  if (!std::isnan(model)) {
+    st_.tankModelL = model;
+    st_.tankModelValid = 1;
+  }
+  levelSmooth_ = NAN;  // Füllstand nach dem Tanken neu einschwingen lassen
+
+  // Kalibrierung nur zwischen Vollbetankungen (A7)
+  st_.calFilledL += liters;
+  if (full) {
+    if (st_.hadFullFill) {
+      const float cal = fuel::calibrate(profile_.fuelCal, static_cast<float>(st_.calFilledL),
+                                        static_cast<float>(st_.calComputedL), static_cast<float>(st_.calKm), calApplied);
+      if (calApplied && cal != profile_.fuelCal) {
+        profile_.fuelCal = cal;
+        profileChanged_ = true;
+      }
+    }
+    st_.hadFullFill = 1;
+    st_.calFilledL = st_.calComputedL = st_.calKm = 0;
+  }
+
+  if (st_.fillKm >= cfg::AVG_SIMPLE_MIN_KM) st_.prevFillL100 = r.l100;
+  if (st_.fillKm > 0) st_.fills.push(static_cast<float>(st_.fillKm), static_cast<float>(st_.fillL));
+  st_.fillKm = st_.fillL = 0;
+  saveNow_ = true;
+  return r;
+}

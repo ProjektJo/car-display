@@ -1,0 +1,244 @@
+// Rechnung eines Profils im Zusammenspiel (A7/A8): simulierte Fahrt gegen den wahren Verbrauch,
+// Tanken mit Kalibrierung, Fahrt weiter bzw. neu nach dem Start, Fahrtende ohne Motor, Speichern.
+#include "calc/vehicle_calc.h"
+
+#include <cstring>
+#include <initializer_list>
+
+#include <unity.h>
+
+#include "sim/simulator.h"
+
+void setUp() {}
+void tearDown() {}
+
+static void support(LinkInfo& li, std::initializer_list<uint8_t> pids) {
+  memset(li.supported, 0, sizeof(li.supported));
+  for (uint8_t p : pids) li.supported[p / 8] |= static_cast<uint8_t>(1u << (p % 8));
+  li.supportedKnown = true;
+}
+
+static Profile simProfile(uint8_t id = 1) {
+  Profile p;
+  p.id = id;
+  snprintf(p.name, sizeof(p.name), "Test");
+  p.displacementL = DriveSim::DISPLACEMENT_L;
+  p.ve = DriveSim::VE;
+  p.tankL = DriveSim::TANK_L;
+  return p;
+}
+
+// Simulierte Fahrt: berechnete Liter liegen nahe am wahren Verbrauch der Simulation
+void test_sim_drive_liters() {
+  DriveSim sim;
+  CarState s;
+  support(s.link, {0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0F, 0x11, 0x2F, 0x49});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  const float dt = 0.125f;
+  double trueL = 0, trueKm = 0;
+  uint32_t now = 1;
+  for (int i = 0; i < (int)(40 * 60 / dt); i++) {  // 40 min
+    sim.step(dt);
+    now += 125;
+    const SimOutput& o = sim.out();
+    s.speed.set(o.speedKmh, now);
+    s.rpm.set(o.rpm, now);
+    s.map.set(o.mapKpa, now);
+    s.throttle.set(o.throttlePct, now);
+    s.iat.set(o.iatC, now);
+    s.stft.set(o.stftPct, now);
+    s.ltft.set(o.ltftPct, now);
+    s.fuelSys.set(o.fuelSys, now);
+    s.coolant.set(o.coolantC, now);
+    s.fuelLevel.set(o.fuelLevelPct, now);
+    calc.step(s, now, dt);
+    trueL += o.trueLph * dt / 3600.0;
+    trueKm += o.speedKmh * dt / 3600.0;
+  }
+  const PersistState& st = calc.state();
+  TEST_ASSERT_TRUE(trueKm > 10);
+  TEST_ASSERT_FLOAT_WITHIN(0.01 * trueKm, trueKm, st.totalKm);
+  TEST_ASSERT_FLOAT_WITHIN(0.03 * trueL, trueL, st.totalL);  // ± 3 %
+  TEST_ASSERT_TRUE(st.trip.active);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, (float)st.totalKm, (float)st.trip.km);
+  TEST_ASSERT_FLOAT_IS_NOT_NAN(calc.out().avg10);
+  TEST_ASSERT_FLOAT_IS_NOT_NAN(calc.out().tankL);    // aus 0x2F
+  TEST_ASSERT_FLOAT_IS_NOT_NAN(calc.out().rangeKm);
+}
+
+// Gleichmäßige Fahrt: 50 km/h, fester Saugrohrdruck. Liefert l/h dieser Fahrt.
+static float cruise(VehicleCalc& calc, CarState& s, uint32_t& now, float km) {
+  const float dt = 0.1f;
+  float lph = 0;
+  for (int i = 0; i < (int)(km / 50.0f * 3600.0f / dt + 0.5f); i++) {
+    now += 100;
+    s.speed.set(50, now);
+    s.rpm.set(2000, now);
+    s.map.set(45, now);
+    s.iat.set(25, now);
+    s.fuelSys.set(2, now);
+    s.coolant.set(90, now);
+    calc.step(s, now, dt);
+    lph = calc.out().instLph;
+  }
+  return lph;
+}
+
+// Tanken: Tankmodell, Mischpreis, Kalibrierung zwischen zwei Vollbetankungen
+void test_refuel_and_calibration() {
+  CarState s;
+  support(s.link, {0x03, 0x05, 0x0B, 0x0C, 0x0D, 0x0F});  // ohne 0x2F: Tankmodell
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  cruise(calc, s, now, 1.0f);
+  TEST_ASSERT_FLOAT_IS_NAN(calc.out().tankL);  // vor dem ersten Tanken unbekannt
+
+  bool cal = false;
+  calc.refuel(30.0f, 1.799f, true, trip::FillSource::Entered, cal);
+  TEST_ASSERT_FALSE(cal);  // erste Vollbetankung startet nur den Zeitraum
+  cruise(calc, s, now, 0.1f);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 49.0f, calc.out().tankL);
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.799f, calc.out().mixPrice);
+
+  cruise(calc, s, now, 400.0f);
+  const float computed = (float)calc.state().calComputedL;
+  const float rest = calc.out().tankL;
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 49.0f - computed, rest);
+  // getankt = berechnet · 40/36,4 -> fuel_cal · 1,0483
+  calc.refuel(computed * 40.0f / 36.4f, 1.699f, true, trip::FillSource::Entered, cal);
+  TEST_ASSERT_TRUE(cal);
+  TEST_ASSERT_TRUE(calc.takeProfileChanged());
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0483f, calc.profile().fuelCal);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, (float)calc.state().fillKm);
+  TEST_ASSERT_FLOAT_IS_NOT_NAN(calc.state().prevFillL100);
+  // Mischpreis aus Rest und neuem Sprit
+  TEST_ASSERT_FLOAT_WITHIN(0.0005f, (rest * 1.799f + computed * 40.0f / 36.4f * 1.699f) / (rest + computed * 40.0f / 36.4f),
+                           calc.state().mixPrice);
+  TEST_ASSERT_TRUE(calc.saveDue(now));
+}
+
+// Nach dem Start: warm abgestellt und kaum abgekühlt = dieselbe Fahrt, sonst neue (A8)
+void test_trip_continues_after_restart() {
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  cruise(calc, s, now, 5.0f);
+  PersistState saved = calc.state();
+  const uint16_t number = saved.trip.number;
+  saved.coolantLastC = 88;
+
+  VehicleCalc again;
+  again.load(simProfile(), &saved);
+  s.coolant.set(85, now);
+  s.rpm.set(800, now);
+  again.step(s, now, 0.1f);
+  TEST_ASSERT_EQUAL_UINT16(number, again.state().trip.number);
+  trip::TripRecord rec;
+  TEST_ASSERT_FALSE(again.takeTripRecord(rec));
+
+  VehicleCalc cold;
+  cold.load(simProfile(), &saved);
+  s.coolant.set(60, now);
+  cold.step(s, now, 0.1f);
+  TEST_ASSERT_EQUAL_UINT16(number + 1, cold.state().trip.number);
+  TEST_ASSERT_TRUE(cold.takeTripRecord(rec));
+  TEST_ASSERT_EQUAL_UINT16(number, rec.number);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 5.0f, rec.km);
+}
+
+// Strom bleibt an: 5 min ohne Motor beendet die Fahrt; Stillstand über 10 s speichert einmal
+void test_engine_off_and_save() {
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  cruise(calc, s, now, 2.0f);
+  calc.markSaved(now);
+  TEST_ASSERT_FALSE(calc.saveDue(now));
+  // Stand mit laufendem Motor
+  for (int i = 0; i < 110; i++) {
+    now += 100;
+    s.speed.set(0, now);
+    s.rpm.set(800, now);
+    calc.step(s, now, 0.1f);
+  }
+  TEST_ASSERT_TRUE(calc.saveDue(now));  // über 10 s Stillstand
+  calc.markSaved(now);
+  for (int i = 0; i < 50; i++) {
+    now += 100;
+    calc.step(s, now, 0.1f);
+  }
+  TEST_ASSERT_FALSE(calc.saveDue(now));  // nur einmal je Stillstand
+  // Motor aus, Werte bleiben aus (Zündung aus, Strom an)
+  trip::TripRecord rec;
+  for (int i = 0; i < 3100; i++) {  // 5 min 10 s
+    now += 100;
+    calc.step(s, now, 0.1f);  // Drehzahl veraltet -> Motor aus
+  }
+  TEST_ASSERT_TRUE(calc.takeTripRecord(rec));
+  TEST_ASSERT_FALSE(calc.state().trip.active);
+  TEST_ASSERT_TRUE(calc.saveDue(now));  // Fahrtende sofort sichern
+  calc.markSaved(now);
+  for (int i = 0; i < 1800; i++) {  // 3 min weiter ohne Motor: nichts ändert sich, nichts schreiben
+    now += 100;
+    calc.step(s, now, 0.1f);
+    TEST_ASSERT_FALSE(calc.saveDue(now));
+  }
+  // Motor läuft wieder: neue Fahrt
+  cruise(calc, s, now, 0.5f);
+  TEST_ASSERT_TRUE(calc.state().trip.active);
+  TEST_ASSERT_EQUAL_UINT16(rec.number + 1, calc.state().trip.number);
+}
+
+// Diesel ohne 0x5E: kein Verbrauch, also keine Schnitte (statt 0,0), die Fahrt zählt trotzdem km
+void test_diesel_without_fuel_rate() {
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D, 0x10});
+  VehicleCalc calc;
+  Profile p = simProfile();
+  p.fuel = FuelType::Diesel;
+  calc.load(p, nullptr);
+  uint32_t now = 1;
+  cruise(calc, s, now, 3.0f);
+  TEST_ASSERT_TRUE(calc.out().source == fuel::Source::None);
+  TEST_ASSERT_FLOAT_IS_NAN(calc.out().avg1);
+  TEST_ASSERT_FLOAT_IS_NAN(calc.out().avgTrip);
+  TEST_ASSERT_FLOAT_IS_NAN(calc.out().instLph);
+  TEST_ASSERT_TRUE(calc.state().trip.km > 1.0);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, static_cast<float>(calc.state().totalKm));  // Schnitte bleiben leer
+}
+
+// Schub: Momentanverbrauch exakt 0
+void test_fuel_cut_zero() {
+  CarState s;
+  support(s.link, {0x03, 0x05, 0x0B, 0x0C, 0x0D});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  cruise(calc, s, now, 1.0f);
+  now += 100;
+  s.fuelSys.set(4, now);
+  s.speed.set(60, now);
+  s.rpm.set(1800, now);
+  s.map.set(25, now);
+  calc.step(s, now, 0.1f);
+  TEST_ASSERT_TRUE(calc.out().fuelCut);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, calc.out().instLph);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, calc.out().instL100);
+}
+
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(test_sim_drive_liters);
+  RUN_TEST(test_refuel_and_calibration);
+  RUN_TEST(test_trip_continues_after_restart);
+  RUN_TEST(test_engine_off_and_save);
+  RUN_TEST(test_fuel_cut_zero);
+  RUN_TEST(test_diesel_without_fuel_rate);
+  return UNITY_END();
+}

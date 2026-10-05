@@ -5,13 +5,16 @@
 
 enum class CmdType : uint8_t {
   SimSprint,    // Simulator: Vollgas-Sequenz beim nächsten Halt starten
-  // Weitere Befehle folgen mit den Etappen (Fahrt beenden, Fehlercodes lesen/löschen, Tanken ...)
+  Refuel,       // an calcTask: f = Liter, f2 = Preis €/l, i = 1 vollgetankt (Tank-Fenster ab Etappe 5)
+  EndTrip,      // an calcTask: Fahrt beenden (Menü, Etappe 7)
+  // Weitere Befehle folgen mit den Etappen (Fehlercodes lesen/löschen ...)
 };
 
 struct Command {
   CmdType type;
   int32_t i = 0;
   float f = 0.0f;
+  float f2 = 0.0f;
 };
 
 namespace commands {

@@ -17,7 +17,7 @@ namespace cfg {
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
-constexpr const char* FW_VERSION = "2.0.0-etappe2";
+constexpr const char* FW_VERSION = "2.0.0-etappe3";
 
 // ---------------------------------------------------------------------------
 // Aufgaben und Takt (A5)
@@ -30,10 +30,12 @@ constexpr uint32_t CALC_PERIOD_MS = 100;          // calcTask rechnet mit 10 Hz 
 // Stacks (Bytes) und Prioritäten der Tasks (A5)
 constexpr uint32_t UI_TASK_STACK = 16 * 1024;
 constexpr uint32_t OBD_TASK_STACK = 8 * 1024;
-constexpr uint32_t CALC_TASK_STACK = 6 * 1024;
+constexpr uint32_t CALC_TASK_STACK = 8 * 1024;
+constexpr uint32_t STORAGE_TASK_STACK = 8 * 1024;  // LittleFS und ArduinoJson brauchen etwas Stack
 constexpr uint8_t OBD_TASK_PRIO = 5;
 constexpr uint8_t UI_TASK_PRIO = 4;
 constexpr uint8_t CALC_TASK_PRIO = 4;
+constexpr uint8_t STORAGE_TASK_PRIO = 1;
 constexpr uint8_t CORE_DATA = 0;                  // obdTask, calcTask, sensorTask
 constexpr uint8_t CORE_UI = 1;                    // uiTask, storageTask
 constexpr uint8_t CMD_QUEUE_LEN = 8;              // Befehle UI -> obdTask bzw. calcTask
@@ -90,14 +92,115 @@ constexpr uint32_t OBD_RATE_WINDOW_MS = 2000;     // "Abfragen pro Sekunde" übe
 constexpr uint32_t START_SCREEN_HOLD_MS = 1500;
 
 // ---------------------------------------------------------------------------
-// Fahrzeug-Standardprofil (A6), bis die Profile in Etappe 3 kommen
+// Fahrzeugprofile (A6)
 // ---------------------------------------------------------------------------
-constexpr float DEFAULT_TANK_L = 49.0f;           // Renault Modus
-constexpr float RANGE_LOW_KM = 50.0f;             // Reichweite darunter: Tanksymbol und Kachel bernstein (A7, U)
+// ANNAHME: höchstens 8 Profile; mehr Autos hat kaum jemand im Wechsel.
+constexpr uint8_t MAX_PROFILES = 8;
+// Vorbelegung des Assistenten "Neues Fahrzeug" (A6, Beispielprofil Renault Modus)
 constexpr const char* DEFAULT_PROFILE_NAME = "Renault Modus";
-constexpr const char* DEFAULT_BODY_NAME = "Kleinwagen";  // Fahrzeugart (A6)
-constexpr float DEFAULT_BODY_MASS_KG = 1150.0f;
+constexpr const char* NEW_PROFILE_NAME = "Fahrzeug";     // ab dem zweiten Profil: "Fahrzeug 2" usw.
+constexpr uint8_t PROFILE_NAME_MAX_CHARS = 16;            // ANNAHME: Namen bis 16 Zeichen
+constexpr float DEFAULT_DISPLACEMENT_L = 1.2f;
+constexpr float DEFAULT_TANK_L = 49.0f;
+constexpr float DEFAULT_VE = 0.85f;                       // Füllungsgrad für Speed-Density (A7)
 constexpr float DEFAULT_FUEL_CAL = 1.00f;
+constexpr float DEFAULT_KM_FACTOR = 1.00f;
+constexpr uint16_t DEFAULT_COLD_RPM_LIMIT = 2500;         // Kalt-Grenze (A9)
+constexpr uint8_t DEFAULT_COLD_COOLANT_C = 60;            // kalt unter 60 °C (A9)
+constexpr uint16_t DEFAULT_REDLINE_RPM = 6000;            // A6 Beispielprofil
+constexpr uint16_t SHIFT_RPM_PETROL = 2200;               // Schaltempfehlung Benziner (A9)
+constexpr uint16_t SHIFT_RPM_DIESEL = 1800;               // Diesel (A9)
+// ANNAHME: Der Assistent fragt nicht nach der Leistung. Sie skaliert nur den Leistungsbalken (Etappe 6)
+// und wird aus dem Hubraum geschätzt: 46 kW je Liter (Modus 1.2 16V: 55 kW).
+constexpr float POWER_KW_PER_L = 46.0f;
+// Eingabebereiche im Assistenten
+constexpr float DISPLACEMENT_MIN_L = 0.6f, DISPLACEMENT_MAX_L = 6.0f, DISPLACEMENT_STEP_L = 0.1f;
+constexpr float TANK_MIN_L = 20.0f, TANK_MAX_L = 120.0f, TANK_STEP_L = 1.0f;
+
+// Fahrzeugart: Gewicht inkl. Fahrer und cw·A (A6 Tabelle). Index 0 = Standard (Kleinwagen).
+struct BodyType {
+  const char* key;   // im Profil-JSON
+  const char* name;  // Anzeige
+  float massKg;
+  float cwA;         // m²
+};
+constexpr BodyType BODY_TYPES[] = {
+    {"klein", "Kleinwagen", 1150.0f, 0.70f}, {"kompakt", "Kompakt", 1400.0f, 0.68f},
+    {"limousine", "Limousine", 1550.0f, 0.62f}, {"kombi", "Kombi", 1600.0f, 0.70f},
+    {"suv", "SUV", 1850.0f, 0.88f},           {"van", "Van", 1750.0f, 0.85f},
+    {"transporter", "Transporter", 2300.0f, 1.15f},
+};
+constexpr uint8_t BODY_TYPE_COUNT = sizeof(BODY_TYPES) / sizeof(BODY_TYPES[0]);
+
+// ---------------------------------------------------------------------------
+// Verbrauch (A7 Verbrauchsberechnung)
+// ---------------------------------------------------------------------------
+constexpr float AFR_STOICH = 14.7f;               // Benzin; mit 0x44: AFR = 14,7 · λ_soll
+constexpr float DENSITY_PETROL_G_PER_L = 745.0f;
+constexpr float DENSITY_DIESEL_G_PER_L = 832.0f;
+constexpr float HEAT_PETROL_MJ_PER_L = 32.0f;     // Heizwert (für Bremsenergie, Etappe 4)
+constexpr float HEAT_DIESEL_MJ_PER_L = 36.0f;
+constexpr float R_AIR_KJ_PER_KG_K = 0.28705f;     // Gaskonstante Luft
+constexpr float KELVIN_OFFSET = 273.15f;
+// ANNAHME: Liefert das Auto keine Ansauglufttemperatur (0x0F), rechnet Speed-Density mit 25 °C.
+constexpr float IAT_FALLBACK_C = 25.0f;
+constexpr float L100_MIN_SPEED_KMH = 5.0f;        // l/100 km erst ab 5 km/h, darunter l/h (A7)
+constexpr uint32_t INSTANT_WINDOW_MS = 1000;      // Momentanverbrauch = 1-s-Mittel (A7)
+// Schubabschaltung: 0x03 = 4 "open loop due to deceleration" (A7)
+constexpr uint8_t FUEL_SYS_DECEL_CUT = 4;
+// Ersatzregel ohne 0x03: Drosselklappe ≈ 0 % bei > 1200 U/min und > 15 km/h (A7).
+// ANNAHME: "≈ 0 %" heißt höchstens 1,5 Prozentpunkte über dem kleinsten Wert seit dem Verbinden,
+// weil viele Autos bei geschlossener Klappe nicht genau 0 % melden.
+constexpr float CUT_FALLBACK_MIN_RPM = 1200.0f;
+constexpr float CUT_FALLBACK_MIN_SPEED_KMH = 15.0f;
+constexpr float CUT_THROTTLE_MARGIN_PCT = 1.5f;
+
+// Selbstkalibrierung zwischen zwei Vollbetankungen (A7)
+constexpr float CAL_MIN_KM = 150.0f;
+constexpr float CAL_RATIO_MIN = 0.7f;
+constexpr float CAL_RATIO_MAX = 1.3f;
+constexpr float FUEL_CAL_MIN = 0.7f;
+constexpr float FUEL_CAL_MAX = 1.3f;
+
+// ---------------------------------------------------------------------------
+// Mittelwerte über Strecke (A7)
+// ---------------------------------------------------------------------------
+constexpr uint16_t AVG1_SLOTS = 20;   constexpr float AVG1_SLOT_M = 50.0f;     // 1 km = 20 × 50 m
+constexpr uint16_t AVG10_SLOTS = 100; constexpr float AVG10_SLOT_M = 100.0f;   // 10 km = 100 × 100 m
+constexpr uint16_t AVG100_SLOTS = 100; constexpr float AVG100_SLOT_M = 1000.0f; // 100 km = 100 × 1 km
+// ANNAHME: Ein Fenster zeigt einen Wert, sobald 10 % seiner Länge gefahren sind (1 km: 100 m,
+// 10 km: 1 km, 100 km: 10 km). Vorher "–", damit die ersten Meter nicht wild springen.
+constexpr float AVG_MIN_FRACTION = 0.1f;
+constexpr float TANK_AVG_PREV_KM = 30.0f;         // erste 30 km nach dem Tanken: Schnitt der vorigen Füllung (A7)
+// ANNAHME: Fahrt-, Tank- und Profil-Schnitt zeigen erst ab 1 km einen Wert.
+constexpr float AVG_SIMPLE_MIN_KM = 1.0f;
+
+// ---------------------------------------------------------------------------
+// Tank, Preis, Reichweite (A7 Restreichweite, Tankfüllung)
+// ---------------------------------------------------------------------------
+constexpr float RANGE_W_100 = 0.5f;               // Prognose = 50 % Ø 100 km
+constexpr float RANGE_W_10 = 0.3f;                //          + 30 % Ø 10 km
+constexpr float RANGE_W_FILLS = 0.2f;             //          + 20 % Ø der letzten 5 Tankfüllungen
+constexpr uint8_t RANGE_FILLS = 5;
+constexpr float RANGE_TAU_S = 60.0f;              // nur die Prognose wird geglättet (τ = 60 s)
+constexpr float RANGE_CAUTIOUS_KM = 80.0f;        // darunter mit dem höchsten der drei Schnitte
+constexpr float RANGE_LOW_KM = 50.0f;             // darunter Tanksymbol und Kachel bernstein (A7, U)
+// ANNAHME: Der Füllstand aus 0x2F schwappt; er wird mit τ = 30 s geglättet ("geglättet", A7).
+constexpr float TANK_LEVEL_TAU_S = 30.0f;
+constexpr float PRICE_TENTH_CENTS = 0.009f;       // feste ⁹ hinter Euro und Cent (A7)
+
+// ---------------------------------------------------------------------------
+// Speichern und Fahrtende (A8)
+// ---------------------------------------------------------------------------
+constexpr uint32_t SAVE_PERIOD_MS = 60000;        // laufende Summen alle 60 s ...
+constexpr uint32_t SAVE_STANDSTILL_MS = 10000;    // ... und bei jedem Stillstand über 10 s
+constexpr uint16_t TRIP_LOG_SIZE = 50;            // Fahrtenbuch: letzte 50 Fahrten (A2 Nr. 17)
+constexpr uint16_t FILL_LOG_SIZE = 100;           // letzte 100 Tankfüllungen
+constexpr float TRIP_WARM_C = 70.0f;              // Motor beim Abstellen warm ab 70 °C ...
+constexpr float TRIP_PAUSE_MAX_DROP_C = 4.0f;     // ... und beim Start höchstens 4 °C kälter = kurze Pause
+constexpr uint32_t TRIP_ENGINE_OFF_END_MS = 5UL * 60 * 1000;  // Strom bleibt an: 5 min ohne Motor = Fahrtende
+// ANNAHME: Fahrten unter 100 m (z. B. nur Zündung an) kommen nicht ins Fahrtenbuch.
+constexpr float TRIP_MIN_RECORD_KM = 0.1f;
 
 // ---------------------------------------------------------------------------
 // Display und Hintergrundlicht (A2 Nr. 5, M Hardware)

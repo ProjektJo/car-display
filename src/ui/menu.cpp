@@ -8,6 +8,7 @@
 #include "ui/theme.h"
 #include "util/format.h"
 #include "util/link_text.h"
+#include "ui/vehicle_dialog.h"
 
 namespace menu {
 
@@ -25,7 +26,7 @@ uint32_t shownGen = 0;
 
 lv_obj_t* menuDiagValue = nullptr;  // Menüzeile Diagnose: "8,0 Abfr./s"
 char menuDiagShown[24] = "";
-enum DiagRow { ROW_ADAPTER, ROW_PROTOCOL, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_BODY, ROW_COUNT };
+enum DiagRow { ROW_VEHICLE, ROW_ADAPTER, ROW_PROTOCOL, ROW_VIN, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_BODY, ROW_COUNT };
 lv_obj_t* diagValues[ROW_COUNT] = {};
 char diagShown[ROW_COUNT][48] = {};
 
@@ -59,6 +60,7 @@ lv_obj_t* row(lv_obj_t* parent, const char* key, lv_obj_t** valueOut, int32_t wi
 void onDone(lv_event_t*) { overlay::close(); }
 void onBackToMenu(lv_event_t*) { open(); }
 void onDiagRow(lv_event_t*) { openDiagnose(); }
+void onVehicleRow(lv_event_t*) { vehicledlg::openChooser(); }
 
 void rateText(const CarSnapshot& s, char* out, size_t size, const char* unit) {
   if (std::isnan(s.link.queriesPerS)) {
@@ -107,16 +109,27 @@ void openDiagnose() {
   overlay::addDoneButton(card, onBackToMenu);
   memset(diagShown, 0, sizeof(diagShown));
 
-  static const char* const KEYS[ROW_COUNT] = {"Adapter", "Protokoll", "Abfragen", "Unterstützte PIDs", "Verbrauch aus",
+  static const char* const KEYS[ROW_COUNT] = {"Fahrzeug", "Adapter", "Protokoll", "VIN", "Abfragen", "Unterstützte PIDs", "Verbrauch aus",
                                               "Fahrzeugart"};
   lv_obj_set_style_pad_row(card, 0, 0);
   lv_obj_t* title = lv_obj_get_child(card, 0);
   lv_obj_set_style_margin_bottom(title, 10, 0);
+  // Mehr Zeilen als Platz: die Karte lässt sich rollen
+  lv_obj_add_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
   for (int i = 0; i < ROW_COUNT; i++) {
-    row(card, KEYS[i], &diagValues[i], LV_PCT(100));
+    lv_obj_t* r = row(card, KEYS[i], &diagValues[i], LV_PCT(100));
     lv_obj_set_width(diagValues[i], DIAG_VALUE_W);
     lv_obj_set_style_text_align(diagValues[i], LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_long_mode(diagValues[i], LV_LABEL_LONG_WRAP);
+    if (i == ROW_VEHICLE) {
+      // Profil wechseln oder neu anlegen (U Menü: "Fahrzeugprofil wechseln/neu" im Diagnose-Dialog)
+      lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_set_style_bg_color(r, theme::c(theme::LINE), LV_STATE_PRESSED);
+      lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_STATE_PRESSED);
+      lv_obj_add_event_cb(r, onVehicleRow, LV_EVENT_CLICKED, nullptr);
+      lv_obj_set_style_text_color(diagValues[i], theme::c(theme::ACCENT), 0);
+    }
   }
 }
 
@@ -132,6 +145,9 @@ void update(const CarSnapshot& s) {
     return;
   }
   const LinkInfo& li = s.link;
+  // Fahrzeugprofil (Tippen = wechseln)
+  snprintf(text, sizeof(text), "%s", s.profile.id ? s.profile.name : (s.profile.asking ? "Welches?" : fmt::NO_VALUE));
+  setText(diagValues[ROW_VEHICLE], diagShown[ROW_VEHICLE], sizeof(diagShown[0]), text);
   // Adapter, Protokoll
   if (li.adapter[0])
     snprintf(text, sizeof(text), "%s (BLE)", li.adapter);
@@ -139,24 +155,29 @@ void update(const CarSnapshot& s) {
     snprintf(text, sizeof(text), "%s", s.link.state == LinkState::Searching ? "Suche …" : fmt::NO_VALUE);
   setText(diagValues[ROW_ADAPTER], diagShown[ROW_ADAPTER], sizeof(diagShown[0]), text);
   setText(diagValues[ROW_PROTOCOL], diagShown[ROW_PROTOCOL], sizeof(diagShown[0]), li.protocol[0] ? li.protocol : fmt::NO_VALUE);
+  setText(diagValues[ROW_VIN], diagShown[ROW_VIN], sizeof(diagShown[0]), linktext::vin(li));
   // Abfragen pro Sekunde (A7)
   rateText(s, text, sizeof(text), "pro Sekunde");
   setText(diagValues[ROW_RATE], diagShown[ROW_RATE], sizeof(diagShown[0]), text);
   // Unterstützte PIDs
   linktext::supported(li, text, sizeof(text));
   setText(diagValues[ROW_PIDS], diagShown[ROW_PIDS], sizeof(diagShown[0]), text);
-  // Verbrauchsquelle mit Kalibrierfaktor (fuel_cal ab Etappe 3 aus dem Profil)
+  // Verbrauchsquelle mit Kalibrierfaktor fuel_cal aus dem Profil
   char cal[12];
-  fmt::number(cal, sizeof(cal), cfg::DEFAULT_FUEL_CAL, 2);
-  if (li.supportedKnown)
-    snprintf(text, sizeof(text), "%s, Kalibrierung %s", linktext::fuelSource(li), cal);
+  fmt::number(cal, sizeof(cal), s.profile.fuelCal, 2);
+  if (li.supportedKnown && s.profile.id)
+    snprintf(text, sizeof(text), "%s, Kalibrierung %s", linktext::fuelSource(li, s.profile.diesel), cal);
   else
     snprintf(text, sizeof(text), "%s", fmt::NO_VALUE);
   setText(diagValues[ROW_FUEL], diagShown[ROW_FUEL], sizeof(diagShown[0]), text);
-  // Fahrzeugart (im Menü wählbar ab Etappe 7)
+  // Fahrzeugart aus dem Profil (im Menü wählbar ab Etappe 7)
+  const cfg::BodyType& body = cfg::BODY_TYPES[s.profile.body < cfg::BODY_TYPE_COUNT ? s.profile.body : 0];
   char mass[12];
-  fmt::number(mass, sizeof(mass), cfg::DEFAULT_BODY_MASS_KG, 0);
-  snprintf(text, sizeof(text), "%s, %s kg", cfg::DEFAULT_BODY_NAME, mass);
+  fmt::number(mass, sizeof(mass), body.massKg, 0);
+  if (s.profile.id)
+    snprintf(text, sizeof(text), "%s, %s kg", body.name, mass);
+  else
+    snprintf(text, sizeof(text), "%s", fmt::NO_VALUE);
   setText(diagValues[ROW_BODY], diagShown[ROW_BODY], sizeof(diagShown[0]), text);
 }
 

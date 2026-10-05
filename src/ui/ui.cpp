@@ -14,6 +14,7 @@
 #include "ui/start_screen.h"
 #include "ui/statusbar.h"
 #include "ui/theme.h"
+#include "ui/vehicle_dialog.h"
 #include "util/button_logic.h"
 
 namespace ui {
@@ -185,6 +186,7 @@ void task(void*) {
       statusbar::update(snap);
       startscreen::update(snap);
       menu::update(snap);
+      vehicledlg::update(snap);  // "Welches Fahrzeug?", wenn kein Profil eindeutig passt
       if (!PAGES[current]->available(snap)) stepPage(+1);  // z. B. Sensor fehlt plötzlich
       PAGES[current]->update(snap);
     }

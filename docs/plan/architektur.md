@@ -125,7 +125,7 @@ Ein Profil ist eine JSON-Datei in `/profiles/`:
 | Transporter | 2300 kg | 1,15 m² |
 
 - **Beim Verbinden:** Adapter-Init, Protokoll automatisch (`ATSP0`), dann `0100/0120/0140/...` lesen = Liste der unterstützten PIDs. Wenn möglich VIN lesen (`0902`).
-- VIN oder PID-Liste passt zu einem Profil → automatisch laden. Sonst fragt das Display einmal: "Welches Fahrzeug?" mit Liste und "Neues Fahrzeug" (Assistent: Name, Kraftstoff, Hubraum, Tankgröße).
+- **Profil erkennen** (Jos Entscheidung vom 5. Oktober): Liefert das Auto eine VIN, gewinnt das Profil mit derselben VIN. Sonst zählt die PID-Liste: Ein Profil passt, wenn seine gespeicherte Liste der unterstützten PIDs und das gefundene Protokoll genau gleich sind (ein Profil mit einer anderen VIN passt nie). Passt genau ein Profil, wird es geladen; passen mehrere oder keins, fragt das Display einmal: "Welches Fahrzeug?" mit Liste und "Neues Fahrzeug" (Assistent: Name, Kraftstoff, Hubraum, Tankgröße). Das gewählte bzw. neue Profil merkt sich VIN, PID-Liste und Protokoll dieses Autos. Die Bluetooth-Adresse des Adapters wird bewusst nicht genutzt.
 - **Gänge werden berechnet, nicht ausgelesen.** Über Standard-OBD liefert kaum ein Auto den Gang, deshalb nutzt die Firmware nur Tempo und Drehzahl, die jedes Auto liefert:
   - Kennzahl `k = Tempo ÷ Drehzahl × 1000` (km/h je 1000 U/min). Jeder Gang hat einen festen Wert, beim Modus z. B. grob 7 / 13 / 19 / 26 / 32.
   - **Lernen:** Nur stabile Phasen zählen (Tempo > 10 km/h, Drehzahl > 1100, k ändert sich über 1,5 s um weniger als 3 %, Gaspedal > 0). Diese k-Werte landen in einem Histogramm; die Häufungen sind die Gänge. Nach etwa 20–30 Minuten gemischter Fahrt sind alle Gänge erkannt, gespeichert im Fahrzeugprofil.
@@ -133,6 +133,7 @@ Ein Profil ist eine JSON-Datei in `/profiles/`:
   - **Anzeige:** Gang = nächster gelernter Wert, wenn k höchstens 6 % davon abweicht. Sonst "–" (Kupplung getreten, Schalten). Drehzahl im Leerlauf bei Fahrt > 15 km/h = "N" (ausgekuppelt rollen, dafür gibt es den Spartipp).
   - Automatik mit Wandler: unscharf, solange der Wandler schlupft; die Anzeige zeigt dann "D". Für den Modus mit Schaltgetriebe kein Thema.
   - Solange noch nichts gelernt ist, bleibt der Gang leer und die Schaltempfehlung nutzt nur die Drehzahl.
+  - **Fahrzeug-Prüfung** (Jos Entscheidung vom 5. Oktober): Hat das geladene Profil schon Gänge gelernt und passen die stabilen Phasen dieser Fahrt zu keinem davon, fragt das Display einmal je Einschalten: "Fährst du mit Fahrzeug <Name>?" mit den Knöpfen "Ja" und "Fahrzeug ändern". "Fahrzeug ändern" öffnet "Welches Fahrzeug?". "Ja" behält das Profil, verwirft dessen gelernte Gänge und lernt sie neu (z. B. andere Reifen). Als unpassend gilt eine Fahrt nach mindestens 2 min stabiler Phasen, von denen höchstens ein Drittel einem gelernten Gang entspricht (± 6 %, wie bei der Anzeige).
 - Mittelwerte, Tankstand und Fahrten gehören jeweils zu einem Profil.
 
 ## 7. OBD-Datenerfassung

@@ -16,16 +16,21 @@ const char* hint(LinkError e);
 // Unterstützte PIDs mit den fehlenden wichtigen, z. B. "13 (ohne MAF, 5E)"; "–" solange unbekannt
 void supported(const LinkInfo& li, char* out, size_t size);
 
-// Woraus der Verbrauch gerechnet wird (A7 Reihenfolge 0x5E, MAF, Saugrohrdruck)
-const char* fuelSource(const LinkInfo& li);
+// VIN für den Diagnose-Dialog: "–" solange nicht gelesen, "nicht geliefert" wenn das Auto sie nicht sendet
+const char* vin(const LinkInfo& li);
 
-// Schritte des Startbildschirms (U Startbildschirm): Adapter, Protokoll, Fahrzeug
+// Woraus der Verbrauch gerechnet wird (A7 Reihenfolge 0x5E, MAF, Saugrohrdruck; Diesel nur 0x5E),
+// wie fuel::chooseSource
+const char* fuelSource(const LinkInfo& li, bool diesel);
+
+// Schritte des Startbildschirms (U Startbildschirm): Adapter, Protokoll, Fahrzeug.
+// askingVehicle = "Welches Fahrzeug?" ist offen (kein Profil passt eindeutig, A6).
 enum class StepKind : uint8_t { Hidden, Current, Done, Failed };
 struct Step {
   StepKind kind = StepKind::Hidden;
   char text[48] = "";
 };
 constexpr int STEP_COUNT = 3;
-void startSteps(const LinkInfo& li, Step out[STEP_COUNT]);
+void startSteps(const LinkInfo& li, bool askingVehicle, Step out[STEP_COUNT]);
 
 }  // namespace linktext

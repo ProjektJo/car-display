@@ -36,8 +36,8 @@ python3 tools/make_icon_font.py "$WORK/cd_icons.ttf"
 # Zeichenvorrat
 TEXT="0x20-0x7E,0xA0-0xFF,0x2013,0x2014,0x2026,0x20AC,0x2191,0x2193"   # Latin-1 (ä ö ü ß ° · Ø ²), – — … € ↑ ↓
 EXTRA="0x03A3,0x2079,0x2192,0x2248,0x25B2,0x25BC"                      # Σ ⁹ → ≈ ▲ ▼ (fehlen in Montserrat, aus DejaVu Sans)
-# FontAwesome: Zapfsäule, Tropfen, Thermometer, Warndreieck sowie die LVGL-Standardsymbole OK, X, ◀ ▶ ▲ ▼, Zahnrad
-ICONS="0xF52F,0xF043,0xF2C9,0xF071,0xF00C,0xF00D,0xF053,0xF054,0xF077,0xF078,0xF013"
+# FontAwesome: Zapfsäule, Tropfen, Thermometer, Warndreieck sowie die LVGL-Standardsymbole OK, X, ◀ ▶ ▲ ▼, Zahnrad, Löschtaste
+ICONS="0xF52F,0xF043,0xF2C9,0xF071,0xF00C,0xF00D,0xF053,0xF054,0xF077,0xF078,0xF013,0xF55A"
 ENGINE="0xE000"                                                          # Motorsymbol (MIL), eigene Datei
 DIGITS="0x20,0x2C-0x3A,0x2013"                                            # Leerzeichen , - . / 0-9 : und – für "kein Wert"
 

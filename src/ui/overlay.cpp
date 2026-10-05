@@ -20,6 +20,7 @@ lv_obj_t* dim = nullptr;
 bool autoCloseOn = true;
 uint32_t openedMs = 0;
 uint32_t gen = 0;
+void (*onClose)() = nullptr;
 }  // namespace
 
 lv_obj_t* open(const char* title, bool autoClose, int32_t inset) {
@@ -59,7 +60,12 @@ void close() {
   if (!dim) return;
   lv_obj_delete_async(dim);  // auch aus einem Ereignis des Fensters selbst sicher
   dim = nullptr;
+  void (*cb)() = onClose;
+  onClose = nullptr;
+  if (cb) cb();
 }
+
+void setOnClose(void (*cb)()) { onClose = cb; }
 
 bool isOpen() { return dim != nullptr; }
 

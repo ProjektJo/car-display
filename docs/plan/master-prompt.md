@@ -82,7 +82,7 @@ Wenn etwas unklar ist: Nimm die vernünftigste Annahme, schreib sie als `// ANNA
 1. **Verbindung:**
    - Der Startbildschirm zeigt die Schritte statt eines Logos.
    - ELM-Init mit `ATZ, ATE0, ATL0, ATS0, ATH0, ATSP0, ATAT2`.
-   - Danach unterstützte PIDs lesen, VIN lesen (falls möglich) und das passende Profil laden.
+   - Danach unterstützte PIDs lesen, VIN lesen (falls möglich) und das passende Profil laden: erst über die VIN, sonst über PID-Liste und Protokoll (Architektur 6).
    - Bei Verbindungsverlust neu verbinden, mit Pausen von 1, 2, 5 und 10 s.
 2. **PID-Scheduler:**
    - Die Taktklassen schnell, mittel, langsam und selten aus Architektur 7.
@@ -222,14 +222,14 @@ Hör nach jeder Etappe auf und warte auf Jos Rückmeldung.
 2. **Verbindung:**
    - BLE-Link (aus `ble_serial`), ELM327-Client mit Antwort-Parser (auch für Multi-PID).
    - PID-Scheduler, unterstützte PIDs, VIN, Startbildschirm, Neuverbindung.
-   - Diagnose-Dialog mit Abfragen pro Sekunde.
+   - Diagnose-Dialog mit Abfragen pro Sekunde und VIN.
 3. **Rechnen und Speichern:**
    - `calc/fuel`, `averages`, `trip` und Tankmodell mit allen Unit-Tests.
    - `storage` mit LittleFS A/B, NVS und Profilen (Assistent "Welches Fahrzeug?"), Fahrtende-Logik.
 4. **Eco-Seite:**
    - Momentanverbrauch, Eco-Kurve, Gang mit Pfeil, Hinweis-Feld mit allen Regeln.
    - Untere Leiste mit Eco-Score, Schub und Gebremst.
-   - Gang-Lernen, Start-Karte.
+   - Gang-Lernen mit Fahrzeug-Prüfung ("Fährst du mit Fahrzeug …?", Architektur 6), Start-Karte.
 5. **Alltagsseiten:**
    - Übersicht mit belegbaren Kacheln und Detailverlauf, Großanzeige, Fahrt & Tank.
    - Tank-Fenster mit Ziffernfeld und automatischer Tankerkennung.

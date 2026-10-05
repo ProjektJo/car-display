@@ -1,7 +1,7 @@
 // Car-Display Firmware v2: Start der Tasks (A5)
 //
 //   Core 0: obdTask (bzw. Simulator), calcTask, später sensorTask
-//   Core 1: uiTask (LVGL), später storageTask
+//   Core 1: uiTask (LVGL), storageTask (Flash)
 #include <Arduino.h>
 #include <Wire.h>
 
@@ -9,6 +9,7 @@
 #include "core/calc_task.h"
 #include "core/car_state_store.h"
 #include "core/commands.h"
+#include "storage/storage_task.h"
 #include "ui/ui.h"
 #ifdef SIMULATE_OBD
 #include "sim/sim_task.h"
@@ -29,6 +30,8 @@ void setup() {
 
   carstate::init();
   commands::init();
+  calc::init();
+  storage::init();
   Serial.printf("\nCar-Display %s (%s)%s\n", cfg::FW_VERSION, BOARD_NAME,
 #ifdef SIMULATE_OBD
                 " - SIMULATOR"
@@ -44,6 +47,8 @@ void setup() {
   xTaskCreatePinnedToCore(obd::task, "obd", cfg::OBD_TASK_STACK, nullptr, cfg::OBD_TASK_PRIO, nullptr, cfg::CORE_DATA);
 #endif
   xTaskCreatePinnedToCore(calc::task, "calc", cfg::CALC_TASK_STACK, nullptr, cfg::CALC_TASK_PRIO, nullptr, cfg::CORE_DATA);
+  xTaskCreatePinnedToCore(storage::task, "storage", cfg::STORAGE_TASK_STACK, nullptr, cfg::STORAGE_TASK_PRIO, nullptr,
+                          cfg::CORE_UI);
 }
 
 void loop() {

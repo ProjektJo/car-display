@@ -33,20 +33,30 @@ void test_supported_summary() {
 void test_fuel_source_order() {
   LinkInfo li;
   support(li, {0x0B, 0x0C, 0x10, 0x5E});
-  TEST_ASSERT_EQUAL_STRING("Kraftstoffrate (5E)", linktext::fuelSource(li));
+  TEST_ASSERT_EQUAL_STRING("Kraftstoffrate (5E)", linktext::fuelSource(li, false));
   support(li, {0x0B, 0x0C, 0x10});
-  TEST_ASSERT_EQUAL_STRING("Luftmasse (MAF)", linktext::fuelSource(li));
+  TEST_ASSERT_EQUAL_STRING("Luftmasse (MAF)", linktext::fuelSource(li, false));
+  TEST_ASSERT_EQUAL_STRING("nicht verfügbar", linktext::fuelSource(li, true));  // Diesel nur über 5E
   support(li, {0x0B, 0x0C});
-  TEST_ASSERT_EQUAL_STRING("Saugrohrdruck", linktext::fuelSource(li));
+  TEST_ASSERT_EQUAL_STRING("Saugrohrdruck", linktext::fuelSource(li, false));
   support(li, {0x0D});
-  TEST_ASSERT_EQUAL_STRING("nicht verfügbar", linktext::fuelSource(li));
+  TEST_ASSERT_EQUAL_STRING("nicht verfügbar", linktext::fuelSource(li, false));
+}
+
+void test_vin() {
+  LinkInfo li;
+  TEST_ASSERT_EQUAL_STRING("\xE2\x80\x93", linktext::vin(li));  // noch nicht gelesen
+  support(li, {0x0D});
+  TEST_ASSERT_EQUAL_STRING("nicht geliefert", linktext::vin(li));
+  strcpy(li.vin, "VF1JP0A0H12345678");
+  TEST_ASSERT_EQUAL_STRING("VF1JP0A0H12345678", linktext::vin(li));
 }
 
 void test_start_steps() {
   LinkInfo li;
   linktext::Step st[linktext::STEP_COUNT];
   li.state = LinkState::Searching;
-  linktext::startSteps(li, st);
+  linktext::startSteps(li, false, st);
   TEST_ASSERT_TRUE(st[0].kind == linktext::StepKind::Current);
   TEST_ASSERT_EQUAL_STRING("Suche Adapter \xE2\x80\xA6", st[0].text);
   TEST_ASSERT_TRUE(st[1].kind == linktext::StepKind::Hidden);
@@ -55,23 +65,30 @@ void test_start_steps() {
   strcpy(li.protocol, "ISO 14230-4 KWP");
   strcpy(li.vehicle, "Renault Modus");
   li.state = LinkState::Running;
-  linktext::startSteps(li, st);
+  linktext::startSteps(li, false, st);
   TEST_ASSERT_EQUAL_STRING("Verbunden mit vLinker MC", st[0].text);
   TEST_ASSERT_EQUAL_STRING("Protokoll: ISO 14230-4 KWP", st[1].text);
   TEST_ASSERT_EQUAL_STRING("Fahrzeug: Renault Modus", st[2].text);
   for (auto& s : st) TEST_ASSERT_TRUE(s.kind == linktext::StepKind::Done);
 
+  // Kein Profil passt: Frage statt Fahrzeugname, bis eins gewählt ist
+  li.vehicle[0] = '\0';
+  linktext::startSteps(li, true, st);
+  TEST_ASSERT_TRUE(st[2].kind == linktext::StepKind::Current);
+  TEST_ASSERT_EQUAL_STRING("Welches Fahrzeug?", st[2].text);
+  strcpy(li.vehicle, "Renault Modus");
+
   // Auto antwortet nicht: Adapter erledigt, zweiter Schritt mit Fehler und Lösung
   li.state = LinkState::Waiting;
   li.error = LinkError::NoVehicle;
-  linktext::startSteps(li, st);
+  linktext::startSteps(li, false, st);
   TEST_ASSERT_TRUE(st[0].kind == linktext::StepKind::Done);
   TEST_ASSERT_TRUE(st[1].kind == linktext::StepKind::Failed);
   TEST_ASSERT_EQUAL_STRING("Auto antwortet nicht", st[1].text);
   TEST_ASSERT_EQUAL_STRING("Zündung an?", linktext::hint(li.error));
 
   li.error = LinkError::AdapterNotFound;
-  linktext::startSteps(li, st);
+  linktext::startSteps(li, false, st);
   TEST_ASSERT_TRUE(st[0].kind == linktext::StepKind::Failed);
   TEST_ASSERT_EQUAL_STRING("Zündung an? Handy-App des Adapters schließen.", linktext::hint(li.error));
 }
@@ -80,6 +97,7 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_supported_summary);
   RUN_TEST(test_fuel_source_order);
+  RUN_TEST(test_vin);
   RUN_TEST(test_start_steps);
   return UNITY_END();
 }

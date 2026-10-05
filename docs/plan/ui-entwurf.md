@@ -154,13 +154,16 @@ Zweispaltig, jede Zeile zeigt rechts den aktuellen Wert. Unterdialoge haben oben
 - **Spar-Ziel:** Chips Aus / Auto / Fest, darunter −0,5 · − · Wert · + · +0,5. Bei Auto steht darunter, woraus der Wert kommt ("6,2 → 5,7"). − oder + bei Auto macht daraus ein festes Ziel.
 - **Fahrzeugart:** Liste Kleinwagen, Kompakt, Limousine, Kombi, SUV, Van, Transporter mit Gewicht; die gewählte in `accent`.
 - **Wartung:** Ölwechsel und Inspektion je mit "fällig in … km · alle … km" (unter 500 km in `warn`) und Knopf "Erledigt".
-- **Diagnose:** Adapter, Protokoll, Abfragen/s, unterstützte PIDs, Verbrauchsquelle mit Kalibrierfaktor, Fahrzeugart.
+- **Diagnose:** Adapter, Protokoll, VIN ("nicht geliefert", wenn das Auto keine sendet), Abfragen/s, unterstützte PIDs, Verbrauchsquelle mit Kalibrierfaktor, Fahrzeugart.
 - Weitere Zeilen, jede tippbar: Getankt von Hand · Kacheln zurücksetzen · Spartipps an/aus · Kalt-Grenze (2000–3000 U/min in 250er Schritten) · Auto-Sprint an/aus · Fahrt beenden (speichert und beginnt eine neue) · Info (springt zur Info-Seite). Den Spritpreis gibt man im Tank-Fenster ein.
 - Zahlen ab 1000 mit Tausenderpunkt (15.000 km).
 - Seltenes im Diagnose-Dialog: Fahrzeugprofil wechseln/neu (Assistent), Kühlmittelgrenze, Mittelwerte zurücksetzen (je Fenster), Sensor neu einlernen (nur mit MPU6050), Fahrten exportieren (nur mit SD).
 
 ## Start-Karte (nach dem Verbinden)
 Karte über der Eco-Seite: "Letzte Fahrt" mit Fahrtnummer, Strecke und Dauer, darunter Ø, Kosten, Eco-Score, Gebremst. Die Werte kommen aus demselben Fahrtdatensatz wie der letzte Balken in der Historie. Höchstens eine Hinweiszeile in `warn` (Wartung fällig in < 500 km oder Thermostat). Schließt nach 6 s, beim Losfahren oder durch Tippen. Entfällt, wenn die letzte Fahrt unter 1 km lag.
+
+## Fahrzeug-Prüfung (nur wenn akut)
+Kleines Fenster, wenn die Gänge dieser Fahrt nicht zum geladenen Profil passen (Architektur 6): "Fährst du mit Fahrzeug Renault Modus?", darunter die Knöpfe "Ja" und "Fahrzeug ändern" (öffnet "Welches Fahrzeug?"). Höchstens einmal je Einschalten.
 
 ## Startbildschirm
 Verbindungsstatus statt Logo, in Schritten: "Suche Adapter …" → "Verbunden mit vLinker MC" → "Protokoll: ISO 14230" → "Fahrzeug: Renault Modus". Bei Fehlern ein Satz mit der Lösung (z. B. "Zündung an? Handy-App des Adapters schließen.").

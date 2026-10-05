@@ -2,7 +2,7 @@
 
 Display im Auto: Ein ESP32-S3 liest über einen BLE-OBD2-Adapter (ELM327-kompatibel) die Fahrzeugdaten und hilft vor allem beim spritsparenden Fahren. Spezifikation: `car-display-plan/master-prompt.md` mit `architektur.md`, `ui-entwurf.md` und der Vorschau.
 
-**Stand: Etappe 2 (Verbindung).** Dazu aus Etappe 1: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit und Simulator. Neu in Etappe 2: Bluetooth-Verbindung zum Adapter, eigener ELM327-Client, Liste der unterstützten PIDs, VIN, PID-Abfragen nach Takt-Klassen, Neuverbindung, Startbildschirm und Diagnose-Dialog. Die meisten Seiten sind noch Platzhalter; die Übersicht zeigt die Rohwerte.
+**Stand: Etappe 3 (Rechnen und Speichern).** Aus Etappe 1 und 2: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit, Simulator, Bluetooth-Verbindung, ELM327-Client, PID-Scheduler, Startbildschirm und Diagnose. Neu in Etappe 3: Verbrauch, Mittelwerte, Tank und Reichweite, Kalibrierung, Fahrten, Speichern im Flash und Fahrzeugprofile mit "Welches Fahrzeug?". Die meisten Seiten sind noch Platzhalter; die Übersicht zeigt Tempo, Drehzahl, Momentan, Ø 10 km, Gaspedal und Reichweite. Einzelheiten: `docs/etappe3.md`.
 
 ## Hardware
 
@@ -37,7 +37,7 @@ Nach dem Einschalten zeigt der Startbildschirm die Schritte: "Suche Adapter …"
 
 Reißt die Verbindung später ab, bleibt die Seite stehen. Der Punkt links in der Statusleiste wird grau, die Werte zeigen "–", und die Firmware verbindet sich von selbst neu.
 
-Menü → **Diagnose** zeigt Adapter, Protokoll, Abfragen pro Sekunde, unterstützte PIDs (mit den fehlenden wichtigen wie Tank oder Gaspedal), die Verbrauchsquelle und die Fahrzeugart.
+Menü → **Diagnose** zeigt Adapter, Protokoll, VIN (oder "nicht geliefert"), Abfragen pro Sekunde, unterstützte PIDs (mit den fehlenden wichtigen wie Tank oder Gaspedal), die Verbrauchsquelle und die Fahrzeugart.
 
 Der serielle Monitor (`pio device monitor`) schreibt beim Verbinden mit:
 
@@ -53,18 +53,26 @@ OBD: läuft, 11 Werte im Plan
 
 Bitte die Zeile mit den unterstützten PIDs nach der ersten Fahrt aufheben: Sie zeigt, ob der Modus Tankfüllstand (2F) und Gaspedal (49) liefert.
 
-## Bedienung (Stand Etappe 2)
+## Bedienung (Stand Etappe 3)
 
 | Eingabe | Wirkung |
 |---|---|
 | Wischen nach links / rechts | nächste / vorige Seite, Endlosschleife |
 | Von oben nach unten wischen (Start in den obersten 40 px) | Menü |
-| Lang drücken (0,8 s) auf eine freie Fläche oder die Statusleiste | Menü (Etappe 2: nur Diagnose) |
+| Lang drücken (0,8 s) auf eine freie Fläche oder die Statusleiste | Menü (bis Etappe 7: nur Diagnose) |
 | BOOT kurz | nächste Seite; ist ein Fenster offen, schließt es; blendet den Startbildschirm aus |
 | BOOT lang (0,8 s) | Menü |
 | BOOT sehr lang (2 s), nur Simulator | Vollgas-Sequenz beim nächsten Halt |
 
 Fenster schließen sich nach 60 s ohne Berührung.
+
+## Fahrzeugprofile
+
+Nach dem Verbinden sucht die Firmware das Profil zum Auto: erst über die VIN, sonst über die Liste der unterstützten PIDs und das Protokoll. Passt genau eins, wird es geladen. Passt keins oder passen mehrere, fragt das Display "Welches Fahrzeug?". Beim allerersten Start öffnet sich gleich der Assistent "Neues Fahrzeug" (Name, Kraftstoff, Hubraum, Tankgröße), vorausgefüllt mit dem Modus. Menü → Diagnose → "Fahrzeug" öffnet die Auswahl jederzeit.
+
+Bis das Auto feststeht, rechnet die Firmware nichts und zählt keine Kilometer. Bis zu 8 Profile, jedes mit eigenen Mittelwerten, Tank, Fahrten und Tankfüllungen.
+
+Ablage im Flash (LittleFS): `/profiles/p<Nr>.json` und `/data/p<Nr>_…`. Die Umgebung `simulator` legt alles unter `/sim` ab und stört die echten Profile nicht.
 
 ## Schriften
 
@@ -72,7 +80,7 @@ Die in LVGL eingebauten Montserrat-Schriften enthalten nur ASCII, also keine Uml
 
 | Datei | Größe | Schnitt | Zeichen |
 |---|---|---|---|
-| `font_m12.c` | 12 px | Montserrat Medium | Latin-1, – … € ↑ ↓, aus DejaVu Σ ⁹ → ≈ ▲ ▼, Symbole (Zapfsäule, Tropfen, Thermometer, Warndreieck, Motor) |
+| `font_m12.c` | 12 px | Montserrat Medium | Latin-1, – … € ↑ ↓, aus DejaVu Σ ⁹ → ≈ ▲ ▼, Symbole (Zapfsäule, Tropfen, Thermometer, Warndreieck, Motor, Rücktaste) |
 | `font_m14.c` | 14 px | Montserrat Medium | wie 12 px |
 | `font_m20.c` | 20 px | Montserrat SemiBold | wie 12 px ohne Motorsymbol |
 | `font_m28.c` | 28 px | Montserrat SemiBold | Latin-1 und Sonderzeichen, keine Symbole |
@@ -102,11 +110,13 @@ car-display-v2/
 │  └─ lv_conf.h              LVGL 9.2
 ├─ src/
 │  ├─ main.cpp               startet die Tasks
-│  ├─ core/                  CarState mit Mutex und Snapshot, Befehls-Queues, calcTask
+│  ├─ calc/                  Verbrauch, Mittelwerte, Fahrt, Tank, Reichweite (reines C++)
+│  ├─ core/                  CarState mit Mutex und Snapshot, Befehls-Queues, calcTask, Profil
 │  ├─ hw/                    Display (TFT_eSPI + DMA, Hintergrundlicht), Touch FT6336U
 │  ├─ obd/                   BLE-Link, ELM327-Client, Antwort-Parser, PID-Scheduler, obdTask
 │  ├─ sim/                   simulierte Fahrt (reines C++) und ihre Task
-│  ├─ ui/                    Theme, Statusleiste, Startbildschirm, Menü, Fenster, Seiten, Schriften
+│  ├─ storage/               LittleFS und NVS, Profile (JSON), Profil erkennen, storageTask
+│  ├─ ui/                    Theme, Statusleiste, Startbildschirm, Menü, Fenster, Fahrzeugauswahl, Seiten, Schriften
 │  └─ util/                  Zahlenformat, BOOT-Taste, Wischgesten, Verbindungstexte (reines C++)
 ├─ test/                     Unit-Tests für `pio test -e native`
 └─ tools/                    Schriften erzeugen
