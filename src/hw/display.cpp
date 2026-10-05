@@ -11,6 +11,7 @@ namespace display {
 namespace {
 TFT_eSPI tft;
 bool dmaActive = false;
+bool pwmOk = false;
 
 void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
   const uint32_t w = lv_area_get_width(area);
@@ -33,15 +34,32 @@ void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
 }  // namespace
 
 lv_display_t* init() {
-  // Hintergrundlicht zuerst aus, damit beim Start kein Bildmüll zu sehen ist
-  ledcSetup(cfg::BACKLIGHT_PWM_CHANNEL, cfg::BACKLIGHT_PWM_FREQ_HZ, cfg::BACKLIGHT_PWM_BITS);
-  ledcAttachPin(BOARD_PIN_LCD_BL, cfg::BACKLIGHT_PWM_CHANNEL);
+  // Hintergrundlicht zuerst aus, damit beim Start kein Bildmüll zu sehen ist; an geht es nach der Startzeile
+  pwmOk = ledcSetup(cfg::BACKLIGHT_PWM_CHANNEL, cfg::BACKLIGHT_PWM_FREQ_HZ, cfg::BACKLIGHT_PWM_BITS) > 0;
+  if (pwmOk) {
+    ledcAttachPin(BOARD_PIN_LCD_BL, cfg::BACKLIGHT_PWM_CHANNEL);
+  } else {
+    Serial.println("Display: PWM fürs Licht nicht verfügbar, Licht nur an/aus");
+    pinMode(BOARD_PIN_LCD_BL, OUTPUT);
+  }
   setBrightness(0);
 
+  Serial.println("Start: Display-Controller wird eingerichtet");
   tft.init();
   tft.setRotation(BOARD_LCD_ROTATION);
   tft.setSwapBytes(true);  // LVGL rechnet RGB565 little-endian, das Display erwartet big-endian
   tft.fillScreen(TFT_BLACK);
+
+  // Startzeile direkt mit TFT_eSPI, dann Licht an: Bleibt danach etwas hängen, ist wenigstens
+  // diese Zeile zu sehen. So lässt sich ein Display-Fehler von einem späteren Fehler trennen.
+  tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextSize(2);
+  tft.drawString("Car-Display startet", BOARD_LCD_HOR_RES / 2, BOARD_LCD_VER_RES / 2);
+  tft.setTextSize(1);
+  tft.setTextDatum(TL_DATUM);
+  setBrightness(cfg::BRIGHT_DAY_DEFAULT);
+  Serial.println("Start: Display und Licht an");
 #if DISPLAY_USE_DMA
   dmaActive = tft.initDMA();
   if (dmaActive) tft.startWrite();  // Bus bleibt für DMA dauerhaft belegt (nur das Display hängt daran)
@@ -66,6 +84,11 @@ lv_display_t* init() {
 
 void setBrightness(uint8_t percent) {
   if (percent > 100) percent = 100;
+  if (!pwmOk) {
+    const bool on = percent > 0;
+    digitalWrite(BOARD_PIN_LCD_BL, (on == static_cast<bool>(BOARD_LCD_BL_ON_HIGH)) ? HIGH : LOW);
+    return;
+  }
   const uint32_t maxDuty = (1u << cfg::BACKLIGHT_PWM_BITS) - 1;
   uint32_t duty = maxDuty * percent / 100;
   if (!BOARD_LCD_BL_ON_HIGH) duty = maxDuty - duty;

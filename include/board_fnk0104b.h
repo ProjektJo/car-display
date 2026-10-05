@@ -42,6 +42,7 @@
 #define SPI_FREQUENCY       40000000
 #define SPI_READ_FREQUENCY  16000000
 #define DISABLE_ALL_LIBRARY_WARNINGS 1  /* keine TFT_eSPI-Hinweise wie "TOUCH_CS nicht definiert" */
+#define LOAD_GLCD           1     /* kleine Standardschrift nur für die Startzeile vor LVGL (hw/display.cpp) */
 
 /* --------------------------------------------------------------------------- */
 /* I2C-Bus (geteilt: Touch, Audio-Codec ES8311, optional MPU6050) */

@@ -155,23 +155,27 @@ void handleSwipe() {
 void task(void*) {
   // LVGL holt seine 256 kB aus dem PSRAM (lv_conf.h); ohne PSRAM stürzt lv_init ab
   if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < LV_MEM_SIZE) {
-    Serial.println("FEHLER: zu wenig PSRAM für LVGL. memory_type qio_opi in platformio.ini prüfen.");
+    Serial.println("FEHLER: zu wenig PSRAM für LVGL. memory_type dio_opi in platformio.ini prüfen.");
   }
+  Serial.println("Start: LVGL");
   lv_init();
   lv_tick_set_cb(tickCb);
   lv_log_register_print_cb(logCb);
 
-  lv_display_t* disp = display::init();
+  lv_display_t* disp = display::init();  // schaltet das Licht schon mit einer Startzeile ein
   if (!disp) {
     for (;;) vTaskDelay(pdMS_TO_TICKS(1000));  // ohne Zeichenpuffer geht nichts
   }
   theme::init(disp);
+  Serial.println("Start: Touch");
   touch::init();
 
+  Serial.println("Start: Oberfläche aufbauen");
   carstate::snapshot(snap);
   createUi();
   showPage(current);
-  lv_refr_now(disp);                                // erstes Bild zeichnen, dann Licht an
+  Serial.println("Start: erstes Bild zeichnen");
+  lv_refr_now(disp);
   display::setBrightness(cfg::BRIGHT_DAY_DEFAULT);  // Helligkeit aus dem Menü folgt in Etappe 7
   Serial.printf("UI bereit, freier interner RAM %u kB, PSRAM %u kB\n",
                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),

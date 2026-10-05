@@ -4,6 +4,7 @@
 //   Core 1: uiTask (LVGL), storageTask (Flash)
 #include <Arduino.h>
 #include <Wire.h>
+#include <esp_system.h>
 
 #include "config.h"
 #include "core/calc_task.h"
@@ -17,8 +18,32 @@
 #include "obd/obd_task.h"
 #endif
 
+namespace {
+// Grund des letzten Neustarts lesbar ausgeben: zeigt Absturzschleifen (Panic, Watchdog, Brownout)
+const char* resetText(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON: return "Einschalten";
+    case ESP_RST_SW: return "Software-Neustart";
+    case ESP_RST_PANIC: return "ABSTURZ (Panic)";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT: return "WATCHDOG";
+    case ESP_RST_BROWNOUT: return "SPANNUNG ZU NIEDRIG (Brownout)";
+    case ESP_RST_DEEPSLEEP: return "Tiefschlaf";
+    case ESP_RST_EXT: return "Reset-Taste";
+    default: return "unbekannt";
+  }
+}
+}  // namespace
+
 void setup() {
   Serial.begin(115200);
+  // USB-Seriell kurz abwarten, damit die ersten Zeilen im Monitor ankommen. Ohne PC läuft es
+  // nach der Frist einfach weiter.
+  const uint32_t serialWaitStart = millis();
+  while (!Serial && millis() - serialWaitStart < cfg::SERIAL_WAIT_MS) delay(10);
+  Serial.printf("\nStart: Neustart-Grund %s, PSRAM %u kB\n", resetText(esp_reset_reason()),
+                (unsigned)(ESP.getPsramSize() / 1024));
 
   // Verstärker aus: keine Töne (M Hardware)
   pinMode(BOARD_PIN_AMP_EN, OUTPUT);

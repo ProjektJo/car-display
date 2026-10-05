@@ -7,9 +7,11 @@
 #pragma once
 #include <cstdint>
 
-// 1 = Flush per DMA. Bleibt das Bild schwarz oder zeigt es Streifen, hier 0 setzen (dann wie die alte Firmware ohne DMA).
+// 1 = Flush per DMA. Standard 0, bis DMA auf dem Board bestätigt ist: Beim ersten Test blieb das
+// Bild schwarz, und TFT_eSPI-DMA zusammen mit USE_HSPI_PORT auf dem ESP32-S3 ist ein Verdacht.
+// Ohne DMA zeichnet die Firmware wie die alte Firmware; 320 x 240 bei 40 MHz reicht dafür gut.
 #ifndef DISPLAY_USE_DMA
-#define DISPLAY_USE_DMA 1
+#define DISPLAY_USE_DMA 0
 #endif
 
 namespace cfg {
@@ -17,7 +19,7 @@ namespace cfg {
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
-constexpr const char* FW_VERSION = "2.0.0-etappe3";
+constexpr const char* FW_VERSION = "2.0.1-etappe3";
 
 // ---------------------------------------------------------------------------
 // Aufgaben und Takt (A5)
@@ -26,6 +28,7 @@ constexpr uint32_t UI_SNAPSHOT_PERIOD_MS = 100;   // UI holt 10x/s eine Kopie de
 constexpr uint32_t UI_MAX_FPS = 30;               // höchstens 30 fps; in lv_conf.h als LV_DEF_REFR_PERIOD 33 (M)
 constexpr uint32_t UI_LOOP_MAX_SLEEP_MS = 5;      // uiTask schläft höchstens so lange zwischen zwei LVGL-Durchläufen
 constexpr uint32_t CALC_PERIOD_MS = 100;          // calcTask rechnet mit 10 Hz (A5)
+constexpr uint32_t SERIAL_WAIT_MS = 1500;         // beim Start höchstens so lange auf den USB-Monitor warten (Fehlersuche)
 
 // Stacks (Bytes) und Prioritäten der Tasks (A5)
 constexpr uint32_t UI_TASK_STACK = 16 * 1024;
