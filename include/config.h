@@ -6,9 +6,9 @@
 // Board-Pins stehen nicht hier, sondern in board_fnk0104b.h.
 #pragma once
 #include <cstdint>
-
-// 1 = Flush per DMA. Standard 0, bis DMA auf dem Board bestätigt ist: Beim ersten Test blieb das
-// Bild schwarz, und TFT_eSPI-DMA zusammen mit USE_HSPI_PORT auf dem ESP32-S3 ist ein Verdacht.
+// 1 = Flush per DMA. Bleibt 0: Test am 6.10.2026 mit Arduino-Kern 2.0.17 und TFT_eSPI 2.5.43 (FSPI) ergab
+// eine Absturzschleife (Panic) direkt nach "Display: DMA an". Ohne DMA ist das Bild sauber, und
+// 320 x 240 bei 40 MHz reicht dafür gut.
 // Ohne DMA zeichnet die Firmware wie die alte Firmware; 320 x 240 bei 40 MHz reicht dafür gut.
 #ifndef DISPLAY_USE_DMA
 #define DISPLAY_USE_DMA 0
