@@ -167,6 +167,54 @@ void handleSwipe() {
 
 // Bildschirmfoto für die Fehlersuche: Bildschirm (RGB565) und darüber liegende Fenster (ARGB8888)
 // als Rohdaten über USB. Kopfzeile "SHOT <Breite> <Höhe>", dann beide Bilder. tools/screenshot.py setzt sie zusammen.
+// Touch-Test für die Fehlersuche: fünf Fadenkreuze (Ecken 20 px vom Rand, Mitte), ein Punkt zeigt, wo der
+// Touch erkannt wird. Jedes Tippen schreibt "Touch: roh … -> x …, y …" in den Monitor. Tippen auf die
+// Mitte des Kreuzes; BOOT-Taste oder "x" beendet den Test.
+lv_obj_t* touchTest = nullptr;
+lv_obj_t* touchDot = nullptr;
+
+void touchTestPressed(lv_event_t*) {
+  lv_point_t p;
+  lv_indev_get_point(lv_indev_active(), &p);
+  lv_obj_set_pos(touchDot, p.x - 4, p.y - 4);
+  lv_obj_remove_flag(touchDot, LV_OBJ_FLAG_HIDDEN);
+}
+
+void openTouchTest() {
+  lv_obj_t* card = overlay::open("", true, 0);
+  lv_obj_set_layout(card, LV_LAYOUT_NONE);
+  lv_obj_set_style_pad_all(card, 0, 0);
+  lv_obj_set_style_border_width(card, 0, 0);
+  lv_obj_set_style_radius(card, 0, 0);
+  lv_obj_set_style_bg_color(card, theme::c(theme::BG), 0);
+  lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(card, touchTestPressed, LV_EVENT_PRESSED, nullptr);
+  touchTest = card;
+  static const int16_t PTS[5][2] = {{20, 20}, {299, 20}, {160, 120}, {20, 219}, {299, 219}};
+  for (auto& pt : PTS) {
+    for (int k = 0; k < 2; k++) {
+      lv_obj_t* l = lv_obj_create(card);
+      lv_obj_remove_style_all(l);
+      lv_obj_set_size(l, k ? 1 : 21, k ? 21 : 1);
+      lv_obj_set_pos(l, k ? pt[0] : pt[0] - 10, k ? pt[1] - 10 : pt[1]);
+      lv_obj_set_style_bg_color(l, theme::c(theme::TEXT), 0);
+      lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
+      lv_obj_remove_flag(l, LV_OBJ_FLAG_CLICKABLE);
+    }
+  }
+  lv_obj_t* t = theme::label(card, &font_m12, true, "Touch-Test: Kreuze genau antippen");
+  lv_obj_align(t, LV_ALIGN_CENTER, 0, 30);
+  touchDot = lv_obj_create(card);
+  lv_obj_remove_style_all(touchDot);
+  lv_obj_set_size(touchDot, 9, 9);
+  lv_obj_set_style_radius(touchDot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(touchDot, theme::c(theme::WARN), 0);
+  lv_obj_set_style_bg_opa(touchDot, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(touchDot, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(touchDot, LV_OBJ_FLAG_HIDDEN);
+  Serial.println("Touch-Test: Kreuze bei (20,20) (299,20) (160,120) (20,219) (299,219)");
+}
+
 void sendScreenshot() {
   constexpr uint32_t W = BOARD_LCD_HOR_RES, H = BOARD_LCD_VER_RES;
   static uint8_t* bufScreen = nullptr;
@@ -309,6 +357,7 @@ void task(void*) {
         case 'g': tankdlg::openManual(snap); break;
         case 'x': overlay::close(); break;
         case 'm': openMenu(); break;
+        case 't': startscreen::hide(); openTouchTest(); break;
         default: break;
       }
     }

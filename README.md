@@ -156,7 +156,7 @@ Mit GPS stellt sich zusätzlich der km-Faktor selbst ein (Tacho-Abweichung), jew
 ## Werkzeuge
 
 - `pio test -e board_test`: alle Unit-Tests direkt auf dem Board (ohne Compiler auf dem PC, etwa 1 min je Testgruppe).
-- `python tools/screenshot.py COM7 bild.png`: Bildschirmfoto vom Board (das Öffnen des Anschlusses startet das Board neu). Über den seriellen Monitor gehen auch `n` / `p` (Seite vor/zurück), `m` (Menü), `g` (Tank-Fenster), `x` (Fenster schließen).
+- `python tools/screenshot.py COM7 bild.png`: Bildschirmfoto vom Board (das Öffnen des Anschlusses startet das Board neu). Über den seriellen Monitor gehen auch `n` / `p` (Seite vor/zurück), `m` (Menü), `g` (Tank-Fenster), `t` (Touch-Test mit Fadenkreuzen), `x` (Fenster schließen).
 - `python tools/make_dtc_table.py`: Klartext-Tabelle der Fehlercodes aus `data/dtc_de.csv` neu erzeugen.
 
 ## Fehlersuche
@@ -167,4 +167,4 @@ Mit GPS stellt sich zusätzlich der km-Faktor selbst ein (Tacho-Abweichung), jew
 - **Neustart-Schleife ohne eigene Ausgabe** (`rst:0x3 … Saved PC 0x403c…`): Die App muss bei 0x10000 liegen (siehe `partitions.csv`). Nicht verschieben, PlatformIO flasht immer dorthin.
 - **Uhrzeit fehlt:** Erst mit GPS-Fix (Menü → Diagnose → Sensoren). Ohne GPS gibt es keine Uhr, das Board hat keine.
 - **DMA:** `DISPLAY_USE_DMA` in `include/config.h` steht auf `0` (sicherer Weg wie in der alten Firmware), bis DMA auf dem Board bestätigt ist. Mit `1` lässt es sich später erneut testen; zeigt es dann Streifen oder Schwarz, zurück auf `0`.
-- **Wischen geht in die falsche Richtung oder Tippen trifft daneben:** Beim Tippen schreibt der serielle Monitor `Touch: roh … -> x …, y …`. Oben links sollte x und y nahe 0 sein, unten rechts x nahe 319 und y nahe 239. Stimmt das nicht, in `include/board_fnk0104b.h` `BOARD_TOUCH_SWAP_XY`, `BOARD_TOUCH_INVERT_X` und `BOARD_TOUCH_INVERT_Y` anpassen und die Monitor-Zeilen mitschicken.
+- **Wischen geht in die falsche Richtung oder Tippen trifft daneben:** Im seriellen Monitor `t` eingeben, dann erscheinen fünf Fadenkreuze und ein Punkt zeigt, wo der Touch landet. Versatz und Skalierung stehen in `include/board_fnk0104b.h` (`BOARD_TOUCH_SCALE_*`, `BOARD_TOUCH_OFFSET_*`). Beim Tippen schreibt der serielle Monitor `Touch: roh … -> x …, y …`. Oben links sollte x und y nahe 0 sein, unten rechts x nahe 319 und y nahe 239. Stimmt das nicht, in `include/board_fnk0104b.h` `BOARD_TOUCH_SWAP_XY`, `BOARD_TOUCH_INVERT_X` und `BOARD_TOUCH_INVERT_Y` anpassen und die Monitor-Zeilen mitschicken.

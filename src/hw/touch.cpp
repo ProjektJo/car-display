@@ -52,6 +52,9 @@ void mapPoint(uint16_t rx, uint16_t ry, int16_t& x, int16_t& y) {
   }
   if (BOARD_TOUCH_INVERT_X) a = wA - 1 - a;
   if (BOARD_TOUCH_INVERT_Y) b = wB - 1 - b;
+  // Kalibrierung aus dem Board-Header (gemessener Versatz und Skalierung je Achse)
+  a = static_cast<int32_t>(lroundf(a * BOARD_TOUCH_SCALE_X + BOARD_TOUCH_OFFSET_X));
+  b = static_cast<int32_t>(lroundf(b * BOARD_TOUCH_SCALE_Y + BOARD_TOUCH_OFFSET_Y));
   x = static_cast<int16_t>(constrain(a, 0, BOARD_LCD_HOR_RES - 1));
   y = static_cast<int16_t>(constrain(b, 0, BOARD_LCD_VER_RES - 1));
 }

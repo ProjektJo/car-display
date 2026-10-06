@@ -66,6 +66,13 @@
 #define BOARD_TOUCH_SWAP_XY  1
 #define BOARD_TOUCH_INVERT_X 0
 #define BOARD_TOUCH_INVERT_Y 1
+/* Kalibrierung nach dem Umrechnen: Display = Wert · SCALE + OFFSET. Gemessen am 6.10.2026 mit dem   */
+/* Touch-Test (Fadenkreuze, serielles "t"): y lag oben bei 38 statt 20 und unten bei 211 statt 219.   */
+/* x stimmte.                                                                                         */
+#define BOARD_TOUCH_SCALE_X  1.0f
+#define BOARD_TOUCH_OFFSET_X 0.0f
+#define BOARD_TOUCH_SCALE_Y  1.150f
+#define BOARD_TOUCH_OFFSET_Y (-23.7f)
 
 #define BOARD_IMU_I2C_ADDR   0x68 /* optional MPU6050 (Etappe 8) */
 #define BOARD_CODEC_I2C_ADDR 0x18 /* ES8311, nicht genutzt */
