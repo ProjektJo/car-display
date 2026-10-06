@@ -133,6 +133,11 @@ bool tryCandidate(const Candidate& c) {
   clearRx();
   sendRaw(c.tx, "ATZ\r", c.withResponse);
   if (waitReply(cfg::BLE_PROBE_TIMEOUT_MS)) return true;
+  // Fehlersuche: kam die Antwort nur als lesbarer Wert statt als Benachrichtigung an?
+  if (c.rx->canRead()) {
+    const std::string v = c.rx->readValue();
+    Serial.printf("BLE:   gelesen statt benachrichtigt: %u Byte \"%s\"\n", (unsigned)v.size(), v.c_str());
+  }
   c.rx->unsubscribe();
   return false;
 }
