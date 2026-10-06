@@ -58,7 +58,8 @@ struct Candidate {
   NimBLERemoteCharacteristic* rx;
   NimBLERemoteCharacteristic* tx;
   bool withResponse;
-  int rank;  // bekannte Adapter zuerst
+  int rank;            // bekannte Adapter zuerst
+  bool indicate = false;  // Antworten per Indicate statt Notify
 };
 
 // Bekannte UART-Dienste von BLE-OBD-Adaptern (Dienst, Empfangen, Senden)
@@ -119,9 +120,9 @@ void sendRaw(NimBLERemoteCharacteristic* tx, const char* text, bool withResponse
 
 // Probiert einen Kanal: abonnieren, "\r", dann "ATZ\r" und auf eine Antwort warten
 bool tryCandidate(const Candidate& c) {
-  Serial.printf("BLE: probiere %s -> %s, %s\n", c.rx->getUUID().toString().c_str(), c.tx->getUUID().toString().c_str(),
-                c.withResponse ? "Schreiben mit Antwort" : "Schreiben ohne Antwort");
-  if (!c.rx->subscribe(c.rx->canNotify(), onNotify)) {
+  Serial.printf("BLE: probiere %s -> %s, %s, %s\n", c.rx->getUUID().toString().c_str(), c.tx->getUUID().toString().c_str(),
+                c.withResponse ? "Schreiben mit Antwort" : "Schreiben ohne Antwort", c.indicate ? "Indicate" : "Notify");
+  if (!c.rx->subscribe(!c.indicate, onNotify)) {
     Serial.println("BLE:   Benachrichtigung lässt sich nicht einschalten");
     return false;
   }
@@ -168,11 +169,17 @@ bool findUart(const std::string& addr) {
       for (auto* tx : *chars) {
         if (!tx->canWrite() && !tx->canWriteNoResponse()) continue;
         const int rank = knownRank(svc, rx, tx);
-        for (bool wr : {false, true}) {
-          if (wr && !tx->canWrite()) continue;
-          if (!wr && !tx->canWriteNoResponse()) continue;
-          cands.push_back({rx, tx, wr, rank * 2 + (wr ? 1 : 0)});
-          candSvc.push_back(svc);
+        for (bool ind : {false, true}) {
+          if (!ind && !rx->canNotify()) continue;
+          if (ind && !rx->canIndicate()) continue;
+          for (bool wr : {false, true}) {
+            if (wr && !tx->canWrite()) continue;
+            if (!wr && !tx->canWriteNoResponse()) continue;
+            Candidate c{rx, tx, wr, rank * 4 + (ind ? 2 : 0) + (wr ? 1 : 0)};
+            c.indicate = ind;
+            cands.push_back(c);
+            candSvc.push_back(svc);
+          }
         }
       }
     }
@@ -195,8 +202,15 @@ bool findUart(const std::string& addr) {
       std::swap(candSvc[j], candSvc[j - 1]);
     }
   logRaw = true;
-  for (size_t i = 0; i < cands.size() && connected(); i++) {
-    if (!tryCandidate(cands[i])) continue;
+  // Zwei Durchgänge: erst ohne, dann mit gesicherter Verbindung (manche Adapter antworten nur gekoppelt)
+  for (size_t i = 0; i < 2 * cands.size() && connected(); i++) {
+    if (i == cands.size()) {
+      Serial.println("BLE: keine Antwort, versuche gesicherte Verbindung (Kopplung)");
+      NimBLEDevice::setSecurityAuth(true, false, true);
+      if (!client->secureConnection()) Serial.println("BLE:   Kopplung fehlgeschlagen");
+    }
+    if (!tryCandidate(cands[i % cands.size()])) continue;
+    i %= cands.size();
     logRaw = false;
     rxChar = cands[i].rx;
     txChar = cands[i].tx;
