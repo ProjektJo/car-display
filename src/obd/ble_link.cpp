@@ -30,7 +30,10 @@ volatile size_t rxHead = 0, rxTail = 0;
 portMUX_TYPE rxMux = portMUX_INITIALIZER_UNLOCKED;
 volatile bool logRaw = false;  // beim Durchprobieren jeden Block als Hex ausgeben
 
+NimBLERemoteCharacteristic* volatile lastNotifyChar = nullptr;  // Merkmal, über das zuletzt etwas kam
+
 void onNotify(NimBLERemoteCharacteristic* ch, uint8_t* data, size_t len, bool) {
+  lastNotifyChar = ch;
   if (logRaw) {
     char hex[3 * 24 + 1];
     size_t n = 0;
@@ -156,6 +159,53 @@ void remember(const std::string& addr, const Candidate& c, NimBLERemoteService* 
 
 // Sucht den UART-Kanal: zuerst der gemerkte, dann die bekannten Adapter, dann alle Paare aus
 // Benachrichtigungs- und Schreib-Merkmal, jeweils mit beiden Schreibarten
+// Überkreuz-Suche: auf ALLEN Benachrichtigungs-Merkmalen gleichzeitig mithören und über jedes
+// Schreib-Merkmal ATZ schicken (Antwort kann auf einem anderen Merkmal oder Dienst kommen)
+bool findUartCross(const std::string& addr) {
+  std::vector<NimBLERemoteCharacteristic*> rxs, txs;
+  for (auto* svc : *client->getServices(false)) {
+    if (isStandardService(svc->getUUID())) continue;
+    for (auto* ch : *svc->getCharacteristics(false)) {
+      if (ch->canNotify() || ch->canIndicate()) {
+        if (ch->subscribe(ch->canNotify(), onNotify)) rxs.push_back(ch);
+        else Serial.printf("BLE:   %s lässt sich nicht abonnieren\n", ch->getUUID().toString().c_str());
+      }
+      if (ch->canWrite() || ch->canWriteNoResponse()) txs.push_back(ch);
+    }
+  }
+  Serial.printf("BLE: Überkreuz-Suche, %u Empfangs- und %u Sende-Merkmale\n", (unsigned)rxs.size(), (unsigned)txs.size());
+  logRaw = true;
+  for (auto* tx : txs) {
+    for (bool wr : {false, true}) {
+      if ((wr && !tx->canWrite()) || (!wr && !tx->canWriteNoResponse())) continue;
+      Serial.printf("BLE: sende über %s, %s\n", tx->getUUID().toString().c_str(), wr ? "mit Antwort" : "ohne Antwort");
+      lastNotifyChar = nullptr;
+      delay(cfg::BLE_PROBE_SETTLE_MS);
+      clearRx();
+      sendRaw(tx, "\r", wr);
+      delay(cfg::BLE_PROBE_SETTLE_MS);
+      clearRx();
+      sendRaw(tx, "ATZ\r", wr);
+      if (waitReply(cfg::BLE_PROBE_TIMEOUT_MS) && lastNotifyChar) {
+        logRaw = false;
+        rxChar = lastNotifyChar;
+        txChar = tx;
+        txWithResponse = wr;
+        for (auto* r : rxs)
+          if (r != rxChar) r->unsubscribe();
+        snprintf(lastConn, sizeof(lastConn), "%s/%s, %s", rxChar->getUUID().toString().c_str(),
+                 txChar->getUUID().toString().c_str(), wr ? "mit Antwort" : "ohne Antwort");
+        Serial.printf("BLE: Kanal gefunden (überkreuz): %s\n", lastConn);
+        (void)addr;
+        return true;
+      }
+    }
+  }
+  logRaw = false;
+  for (auto* r : rxs) r->unsubscribe();
+  return false;
+}
+
 bool findUart(const std::string& addr) {
   txChar = rxChar = nullptr;
   auto* services = client->getServices(true);
@@ -278,7 +328,7 @@ ConnectResult connect(char* foundName, size_t size, void (*onFound)(const char* 
       Serial.println("BLE: Verbindung fehlgeschlagen");
       return ConnectResult::ConnectFailed;
     }
-    if (!findUart(dev.getAddress().toString())) {
+    if (!findUart(dev.getAddress().toString()) && !(connected() && findUartCross(dev.getAddress().toString()))) {
       Serial.println("BLE: kein Kanal, auf dem der Adapter antwortet");
       client->disconnect();
       return ConnectResult::NoUart;
