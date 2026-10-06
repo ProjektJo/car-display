@@ -56,9 +56,13 @@ void mapPoint(uint16_t rx, uint16_t ry, int16_t& x, int16_t& y) {
   // Kalibrierung aus dem Board-Header (gemessener Versatz und Skalierung je Achse)
   a = static_cast<int32_t>(lroundf(a * BOARD_TOUCH_SCALE_X + BOARD_TOUCH_OFFSET_X));
   b = static_cast<int32_t>(lroundf(b * BOARD_TOUCH_SCALE_Y + BOARD_TOUCH_OFFSET_Y));
-  if (flipped) {  // Bild um 180° gedreht
+  if (flipped) {
+    // Bild um 180° gedreht: x gespiegelt; y hat eine eigene Kalibrierung, weil der Sensor nicht
+    // symmetrisch ist (gemessen in dieser Lage, schließt den Fingerausgleich schon ein)
     a = BOARD_LCD_HOR_RES - 1 - a;
-    b = BOARD_LCD_VER_RES - 1 - b;
+    b = static_cast<int32_t>(lroundf(rx * BOARD_TOUCH_FLIP_SCALE_Y + BOARD_TOUCH_FLIP_OFFSET_Y));
+  } else {
+    b -= cfg::TOUCH_FINGER_OFFSET_Y_PX;  // Fingerausgleich (Bildschirmrichtung)
   }
   x = static_cast<int16_t>(constrain(a, 0, BOARD_LCD_HOR_RES - 1));
   y = static_cast<int16_t>(constrain(b, 0, BOARD_LCD_VER_RES - 1));

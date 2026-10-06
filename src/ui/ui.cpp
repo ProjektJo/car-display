@@ -212,7 +212,7 @@ void openTouchTest() {
   lv_obj_set_style_bg_opa(touchDot, LV_OPA_COVER, 0);
   lv_obj_remove_flag(touchDot, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(touchDot, LV_OBJ_FLAG_HIDDEN);
-  Serial.println("Touch-Test: Kreuze bei (20,20) (299,20) (160,120) (20,219) (299,219)");
+  Serial.printf("Touch-Test (%s): Kreuze bei (20,20) (299,20) (160,120) (20,219) (299,219)\n", uiprefs::get().flip180 ? "gedreht" : "normal");
 }
 
 void sendScreenshot() {
@@ -360,6 +360,15 @@ void task(void*) {
         case 'x': overlay::close(); break;
         case 'm': openMenu(); break;
         case 't': startscreen::hide(); openTouchTest(); break;
+        case 'f': {  // Lage umschalten (Fehlersuche Touch)
+          UiSettings& u = uiprefs::get();
+          u.flip180 = !u.flip180;
+          uiprefs::save();
+          display::setFlipped(u.flip180);
+          touch::setFlipped(u.flip180);
+          Serial.printf("Lage: %s\n", u.flip180 ? "gedreht" : "normal");
+          break;
+        }
         default: break;
       }
     }

@@ -73,6 +73,10 @@
 #define BOARD_TOUCH_OFFSET_X 0.0f
 #define BOARD_TOUCH_SCALE_Y  1.150f
 #define BOARD_TOUCH_OFFSET_Y (-23.7f)
+/* Lage "um 180° gedreht" (Menü → Helligkeit): y direkt aus dem Rohwert x des Sensors,              */
+/* Bildschirm-y = roh_x · SCALE + OFFSET. Gemessen am 6.10.2026 (Kreuz-Test in gedrehter Lage).     */
+#define BOARD_TOUCH_FLIP_SCALE_Y  1.084f
+#define BOARD_TOUCH_FLIP_OFFSET_Y (-23.1f)
 
 #define BOARD_IMU_I2C_ADDR   0x68 /* optional MPU6050 (Etappe 8) */
 #define BOARD_CODEC_I2C_ADDR 0x18 /* ES8311, nicht genutzt */
