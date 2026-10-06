@@ -101,7 +101,20 @@ void openStartCard(const CarSnapshot& s) {
   const float oil = s.oilLeftKm.get(s.now), insp = s.inspLeftKm.get(s.now);
   const bool oilDue = !std::isnan(oil) && oil < cfg::MAINT_WARN_KM;
   const bool inspDue = !std::isnan(insp) && insp < cfg::MAINT_WARN_KM;
-  if (oilDue || inspDue) {
+  // Thermostat geht vor (selten, aber teuer), sonst Wartung
+  if (s.thermoActive) {
+    lv_obj_t* line = lv_obj_create(card);
+    lv_obj_remove_style_all(line);
+    lv_obj_set_size(line, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_border_side(line, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(line, 1, 0);
+    lv_obj_set_style_border_color(line, theme::c(theme::LINE), 0);
+    lv_obj_set_style_pad_top(line, 8, 0);
+    lv_obj_set_style_margin_top(line, 6, 0);
+    lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* a = theme::label(line, &font_m12, false, "Motor wird nicht warm: Thermostat prüfen");
+    lv_obj_set_style_text_color(a, theme::c(theme::WARN), 0);
+  } else if (oilDue || inspDue) {
     const bool showOil = oilDue && (!inspDue || oil <= insp);
     const float left = showOil ? oil : insp;
     lv_obj_t* line = lv_obj_create(card);

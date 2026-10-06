@@ -67,7 +67,12 @@ struct PersistState {
   float tempoKm[cfg::TEMPO_CLASSES];
   float tempoL[cfg::TEMPO_CLASSES];
 
-  float spare[8];
+  // Etappe 8 (im früheren Reserveplatz, Version bleibt 4)
+  uint8_t thermoActive;        // Thermostat-Hinweis steht (Fehlercodes-Seite), bis der Motor wieder warm wird
+  uint8_t reserved3;
+  uint16_t thermoBlockStarts;  // so viele Starts noch kein neuer Thermostat-Hinweis
+  uint32_t lastGpsEpoch;       // letzte GPS-Zeit (UTC, s): Fahrtende ohne Strom (A8)
+  float spare[6];
   uint32_t crc;                // CRC-32 über alles davor
 };
 

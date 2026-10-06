@@ -43,6 +43,7 @@ void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t now
   profile_ = p;
   if (saved && saved->magic == PERSIST_MAGIC && saved->version == PERSIST_VERSION && saved->profileId == p.id) {
     st_ = *saved;
+    if (st_.thermoBlockStarts > 0) st_.thermoBlockStarts--;  // Thermostat: höchstens alle 10 Starts (A9)
   } else {
     initPersist(st_, p.id);
   }
@@ -73,6 +74,10 @@ void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t now
   lastGearSearchMs_ = nowMs;
   engineWasOn_ = false;
   detectDone_ = true;
+  thermoDriveS_ = thermoFastS_ = 0;
+  iatStart_ = NAN;
+  gpsEpochAtStop_ = st_.lastGpsEpoch;
+  thermoFired_ = false;
   sprint_.reset();
   sprint_.setBest(st_.sprintBest);
 }
@@ -80,6 +85,15 @@ void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t now
 // Beim Start entscheiden, ob die gespeicherte Fahrt weiterläuft (A8 Fahrt-Ende ohne Uhr).
 // ANNAHME: Ohne Kühlmitteltemperatur (0x05 nicht unterstützt) und ohne GPS beginnt immer eine neue Fahrt.
 void VehicleCalc::decideTrip(const CarState& s, uint32_t nowMs) {
+  // Mit GPS-Uhrzeit: Pause über 5 min = neue Fahrt (A8). ANNAHME: nur wenn die Uhrzeit schon beim
+  // Start bekannt ist; sonst entscheidet die Kühlmitteltemperatur.
+  if (s.gpsTimeValid && s.gpsEpoch && gpsEpochAtStop_) {
+    tripDecided_ = true;
+    if (st_.trip.active && s.gpsEpoch >= gpsEpochAtStop_ && s.gpsEpoch - gpsEpochAtStop_ <= cfg::TRIP_GPS_PAUSE_S) return;
+    finishTrip();
+    trip::start(st_.trip, ++st_.lastTripNumber);
+    return;
+  }
   const float coolant = s.coolant.get(nowMs);
   const bool coolantMissing = s.link.supportedKnown && !s.link.pidSupported(0x05);
   if (std::isnan(coolant) && !coolantMissing) return;  // warten, bis der erste Wert da ist
@@ -92,6 +106,7 @@ void VehicleCalc::decideTrip(const CarState& s, uint32_t nowMs) {
 void VehicleCalc::finishTrip() {
   if (st_.trip.active && st_.trip.km >= cfg::TRIP_MIN_RECORD_KM) {
     tripRecord_ = trip::toRecord(st_.trip, profile_.id);
+    tripRecord_.date = gpsDate_;  // mit GPS das Datum, sonst 0
     hasTripRecord_ = true;
     st_.lastTrip = tripRecord_;  // Start-Karte beim nächsten Einschalten
     st_.hasLastTrip = 1;
@@ -204,6 +219,39 @@ void VehicleCalc::resetAverages(uint8_t mask) {
   saveNow_ = true;
 }
 
+// Thermostat-Check (A9, Z 10): Motor bleibt trotz langer Fahrt kalt
+void VehicleCalc::stepThermo(const CarState& s, uint32_t nowMs, float dtS, bool engineOn) {
+  const float coolant = s.coolant.get(nowMs);
+  // Wird der Motor wieder normal warm, verschwindet der Eintrag
+  if (st_.thermoActive && !std::isnan(coolant) && coolant >= cfg::THERMO_COOLANT_C) {
+    st_.thermoActive = 0;
+    saveNow_ = true;
+  }
+  if (!engineOn) return;
+  if (std::isnan(iatStart_)) iatStart_ = s.iat.get(nowMs);
+  thermoDriveS_ += dtS;
+  const float speed = s.speed.get(nowMs);
+  if (!std::isnan(speed) && speed > cfg::THERMO_FAST_KMH) thermoFastS_ += dtS;
+  if (thermoFired_ || st_.thermoBlockStarts > 0) return;
+  if (thermoDriveS_ > cfg::THERMO_DRIVE_S && thermoFastS_ > cfg::THERMO_FAST_S && !std::isnan(coolant) &&
+      coolant < cfg::THERMO_COOLANT_C && !std::isnan(iatStart_) && iatStart_ > cfg::THERMO_MIN_IAT_C) {
+    thermoFired_ = true;
+    st_.thermoActive = 1;
+    st_.thermoBlockStarts = cfg::THERMO_EVERY_STARTS;
+    out_.thermoSeq++;
+    saveNow_ = true;
+  }
+}
+
+void VehicleCalc::setKmFactor(float f) {
+  if (!active_ || !(f >= cfg::KMF_MIN && f <= cfg::KMF_MAX)) return;
+  // halbe Korrektur je Vergleich, dämpft Ausreißer
+  const float next = (profile_.kmFactor + f) / 2.0f;
+  if (std::fabs(next - profile_.kmFactor) < 0.001f) return;
+  profile_.kmFactor = next;
+  profileChanged_ = true;
+}
+
 void VehicleCalc::relearnGears() {
   if (!active_) return;
   st_.gearHist.clear();
@@ -272,10 +320,15 @@ void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool eng
     }
   }
   out_.accelMs2 = accel_;
-  // Geschätzte Leistung am Rad (A10): (m·a + Luft + Rollen) · v
+  // Mit MPU6050: gemessene Beschleunigung und Hubarbeit am Berg (A10); m·a + m·g·sin(Steigung)
+  const float slope = s.slopePct.get(nowMs);
+  const float imuLong = s.imuReady ? s.imuLong.get(nowMs) : NAN;
+  const float aReal = std::isnan(imuLong) ? accel_ : imuLong;
+  const float aEff = std::isnan(aReal) ? NAN : aReal + (std::isnan(slope) ? 0.0f : cfg::GRAVITY * std::sin(std::atan(slope / 100.0f)));
+  // Geschätzte Leistung am Rad (A10): (m·a + Luft + Rollen [+ Hang]) · v
   {
     const cfg::BodyType& b = profile_.bodyType();
-    const float p = std::isnan(speed) ? NAN : eco::wheelPowerW(b.massKg, b.cwA, speed / 3.6f, accel_);
+    const float p = std::isnan(speed) ? NAN : eco::wheelPowerW(b.massKg, b.cwA, speed / 3.6f, aEff);
     out_.powerKw = std::isnan(p) ? NAN : (p > 0 ? p / 1000.0f : 0.0f);
   }
 
@@ -305,7 +358,8 @@ void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool eng
   // Spartempo (Z 1): höchster gelernter Gang, Tempo ± 3 km/h und Pedal ruhig seit 20 s
   {
     const bool top = profile_.gearCount > 0 && idx == profile_.gearCount - 1;
-    if (engineOn && top && !cut && !std::isnan(speed) && !std::isnan(pedal)) {
+    const bool level = std::isnan(slope) || std::fabs(slope) < cfg::TEMPO_MAX_SLOPE_PCT;  // mit MPU: eben (Z 1)
+    if (engineOn && top && level && !cut && !std::isnan(speed) && !std::isnan(pedal)) {
       if (!tempoSince_ || std::fabs(speed - tempoRefV_) > cfg::TEMPO_BAND_KMH ||
           std::fabs(pedal - tempoRefP_) > cfg::TEMPO_PEDAL_BAND_PCT) {
         tempoSince_ = nowMs ? nowMs : 1;
@@ -363,7 +417,7 @@ void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool eng
       // Bremsenergie nur ohne Gas (A9)
       if (pedalClosed) {
         const cfg::BodyType& b = profile_.bodyType();
-        t.brakeJ += eco::brakePowerW(b.massKg, b.cwA, speed / 3.6f, accel_) * dtS;
+        t.brakeJ += eco::brakePowerW(b.massKg, b.cwA, speed / 3.6f, aEff) * dtS;
       }
     }
     const float heat = profile_.fuel == FuelType::Diesel ? cfg::HEAT_DIESEL_MJ_PER_L : cfg::HEAT_PETROL_MJ_PER_L;
@@ -459,6 +513,11 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
   const float coolant = s.coolant.get(nowMs);
   if (!std::isnan(coolant)) st_.coolantLastC = coolant;
   stepRefuelDetect(s, nowMs, engineOn);
+  stepThermo(s, nowMs, dtS, engineOn);
+  if (s.gpsTimeValid && s.gpsEpoch) {
+    st_.lastGpsEpoch = s.gpsEpoch;
+    gpsDate_ = s.gpsDate;
+  }
 
   // Fahrt
   if (!tripDecided_) decideTrip(s, nowMs);
@@ -599,6 +658,7 @@ void VehicleCalc::updateOutputs(const CarState& s, uint32_t nowMs, float dtS) {
   } else {
     out_.goalL100 = NAN;
   }
+  out_.thermoActive = st_.thermoActive != 0;
   // Wartung (Z 9)
   if (std::isnan(st_.odoOffsetKm)) {
     out_.odoKm = out_.oilLeftKm = out_.inspLeftKm = NAN;
@@ -648,6 +708,7 @@ trip::FillRecord VehicleCalc::refuel(float liters, float price, bool full, trip:
   r.number = ++st_.lastFillNumber;
   r.profileId = profile_.id;
   r.full = full ? 1 : 0;
+  r.date = gpsDate_;
   r.kmSinceLast = static_cast<float>(st_.fillKm);
   r.liters = liters;
   r.price = price;

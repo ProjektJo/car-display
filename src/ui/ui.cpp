@@ -1,6 +1,8 @@
 #include "ui.h"
 
 #include <Arduino.h>
+
+#include <cmath>
 #include <esp_heap_caps.h>
 
 #include "config.h"
@@ -40,6 +42,7 @@ int current = 0;  // Index in PAGES; Startseite ist Eco
 constexpr int SPRINT_PAGE = 2;  // Index der Sprint-Seite in PAGES
 perf::AutoSprint autoSprint;     // Auto-Sprint (A10): zur Sprint-Seite und zurück
 int beforeSprint = -1;
+uint32_t lastAutoBright = 0;
 CarSnapshot snap;
 
 #ifdef SIMULATE_OBD
@@ -202,10 +205,11 @@ void sendScreenshot() {
 
 void applyBrightness() {
   const UiSettings& u = uiprefs::get();
-  // ANNAHME: "Auto (GPS)" folgt in Etappe 8 dem Sonnenstand; bis dahin bzw. ohne GPS-Fix gilt Tag
-  const bool night = u.dayNight == 1;
-  display::setBrightness(night ? u.brightNight : u.brightDay);
-  theme::setNight(night);
+  // Auto (GPS): Sonnenstand am aktuellen Ort; ohne GPS-Fix gilt Tag
+  float f = u.dayNight == 1 ? 1.0f : 0.0f;
+  if (u.dayNight == 2 && !std::isnan(snap.nightFactor)) f = snap.nightFactor;
+  display::setBrightness(static_cast<uint8_t>(std::lround(u.brightDay + (u.brightNight - u.brightDay) * f)));
+  theme::setNight(f >= 0.5f);
 }
 
 void sendGoal() {
@@ -283,6 +287,11 @@ void task(void*) {
       }
       history::tick(snap);
       live::tick(snap);
+      // Helligkeit "Auto (GPS)": Sonnenstand mit 15 min Übergang (A9), einmal je Sekunde
+      if (uiprefs::get().dayNight == 2 && snap.now / 1000 != lastAutoBright) {
+        lastAutoBright = snap.now / 1000;
+        applyBrightness();
+      }
       for (Page* p : PAGES) p->tick(snap);
       PAGES[current]->update(snap);
       ecopopups::update(snap, !startscreen::visible());

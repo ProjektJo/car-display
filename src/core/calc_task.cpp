@@ -98,6 +98,9 @@ void handleCommands() {
       case CmdType::ResetAvg:
         vc.resetAverages(static_cast<uint8_t>(c.i));
         break;
+      case CmdType::SetKmFactor:
+        vc.setKmFactor(c.f);
+        break;
       default:
         break;
     }
@@ -120,6 +123,8 @@ void logSave(const VehicleCalc::Outputs& o) {
   Serial.println();
   Serial.printf("Gespeichert: Fahrt %s km, Ø 10 km %s l/100, Tank %s l, Reichweite %s km\n", trip, a10, tank, range);
 }
+
+uint16_t thermoSeen = 0;
 
 // Ergebnisse in den CarState
 void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
@@ -163,6 +168,12 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
       s.gearCheckSeq++;
     }
     put(s.goalL100, o.goalL100);
+    if (active && o.thermoSeq != thermoSeen) {
+      thermoSeen = o.thermoSeq;
+      s.thermoSeq++;
+      Serial.println("Thermostat: Motor bleibt kalt, Hinweis");
+    }
+    s.thermoActive = active && o.thermoActive;
     put(s.goalBase, o.goalBase);
     put(s.odoKm, o.odoKm);
     put(s.oilLeftKm, o.oilLeftKm);

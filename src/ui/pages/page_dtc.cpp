@@ -158,14 +158,30 @@ class DtcPage : public Page {
       wantRead_ = false;
       if (!d.known || s.now - d.readAtMs > REREAD_AFTER_MS) requestRead();
     }
-    if (d.seq != shownSeq_ || d.busy != shownBusy_) {
+    if (d.seq != shownSeq_ || d.busy != shownBusy_ || s.thermoActive != shownThermo_) {
       shownSeq_ = d.seq;
       shownBusy_ = d.busy;
+      shownThermo_ = s.thermoActive;
       int n = 0;
+      // Thermostat-Hinweis (A9): umrandet in warn, "Löschen" entfernt ihn nicht
+      if (s.thermoActive) {
+        fill(n, 0, "kein Fehlercode");
+        Item& it = items_[n++];
+        lv_label_set_text(it.code, "Hinweis");
+        lv_label_set_text_static(it.text, "Motor wird nicht warm: Thermostat prüfen lassen");
+        lv_obj_set_style_bg_opa(it.box, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(it.box, 1, 0);
+        lv_obj_set_style_border_color(it.box, theme::c(theme::WARN), 0);
+      }
+      for (int i = n; i < 2 * DtcInfo::MAX; i++) {
+        lv_obj_set_style_bg_opa(items_[i].box, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(items_[i].box, 0, 0);
+      }
+      const int thermoRows = n;
       for (int i = 0; i < d.nStored; i++) fill(n++, d.stored[i], "gespeichert");
       for (int i = 0; i < d.nPending; i++) fill(n++, d.pending[i], "vorläufig");
       for (int i = n; i < 2 * DtcInfo::MAX; i++) lv_obj_add_flag(items_[i].box, LV_OBJ_FLAG_HIDDEN);
-      count_ = n;
+      count_ = n - thermoRows;
       if (n == 0) {
         lv_obj_remove_flag(empty_, LV_OBJ_FLAG_HIDDEN);
         const bool none = d.known && !d.failed;
@@ -247,6 +263,7 @@ class DtcPage : public Page {
   lv_obj_t* clearBtn_ = nullptr;
   uint16_t shownSeq_ = 0xFFFF;
   bool shownBusy_ = false;
+  bool shownThermo_ = false;
   bool shownCanClear_ = true;
   bool wantRead_ = false;
   int count_ = 0;

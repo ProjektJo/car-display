@@ -265,7 +265,10 @@ Tip TipEngine::update(const TipInput& in) {
   const bool coasting = in.engineOn && in.gear == GEAR_NEUTRAL && !std::isnan(in.speedKmh) &&
                         in.speedKmh > cfg::TIP_COAST_MIN_KMH && decel;
   coastSince_ = coasting ? (coastSince_ ? coastSince_ : now) : 0;
-  const bool hard = in.engineOn && !std::isnan(in.pedalPct) && in.pedalPct > cfg::TIP_HARD_PEDAL_PCT &&
+  // Mit MPU6050: Überholen (hohe Längsbeschleunigung) und Bergauffahrt lösen nichts aus (A9)
+  const bool excused = (!std::isnan(in.imuLongMs2) && in.imuLongMs2 > cfg::IMU_OVERTAKE_MS2) ||
+                       (!std::isnan(in.slopePct) && in.slopePct > cfg::SLOPE_UPHILL_PCT);
+  const bool hard = in.engineOn && !excused && !std::isnan(in.pedalPct) && in.pedalPct > cfg::TIP_HARD_PEDAL_PCT &&
                     !std::isnan(in.speedKmh) && in.speedKmh > cfg::TIP_HARD_MIN_KMH;
   hardSince_ = hard ? (hardSince_ ? hardSince_ : now) : 0;
   if (!std::isnan(in.pedalPct) && in.pedalPct > cfg::TIP_LATE_PEDAL_PCT) pedalHighAt_ = now;
@@ -311,6 +314,22 @@ Tip TipEngine::update(const TipInput& in) {
     if (now - shownAt_ >= cfg::TIP_SHOW_MS || gone(active_, in) || in.fuelCut || !in.engineOn) active_ = Tip::None;
   }
   if (active_ == Tip::Cold) active_ = Tip::None;  // wird unten neu bewertet
+
+  // Thermostat (einmalig, A9): erscheint, sobald kein anderer Tipp steht, auch mit abgeschalteten Tipps
+  if (!thermoInit_) {
+    thermoInit_ = true;
+    seenThermo_ = in.thermoSeq;
+  }
+  if (in.thermoSeq != seenThermo_) {
+    seenThermo_ = in.thermoSeq;
+    thermoPending_ = true;
+  }
+  if (thermoPending_ && active_ == Tip::None && !in.fuelCut && !in.quiet && in.engineOn) {
+    thermoPending_ = false;
+    active_ = Tip::Thermo;
+    shownAt_ = now;
+    lastAnyTip_ = now;
+  }
 
   // Neuer Tipp: nicht im Schub, nicht in Ruhezeiten, nur einer gleichzeitig
   if (active_ == Tip::None && in.tipsEnabled && !in.fuelCut && !in.quiet && in.engineOn) {

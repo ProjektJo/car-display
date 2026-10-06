@@ -40,6 +40,9 @@ void setLastProfileId(uint8_t id);
 
 // NVS: Kacheln, Großanzeige, Diagramme. false = noch nichts gespeichert (Standard behalten)
 bool loadUi(UiSettings& ui);
+// NVS: gelernte Einbaulage des MPU6050 je Profil (A10): oben und vorne als Einheitsvektoren
+bool loadImuAxes(uint8_t id, float axes[6]);
+void saveImuAxes(uint8_t id, const float axes[6]);  // nullptr-artig: alle 0 = vergessen
 void saveUi(const UiSettings& ui);
 
 }  // namespace store

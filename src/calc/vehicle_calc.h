@@ -55,6 +55,9 @@ class VehicleCalc {
     float goalBase = NAN;          // bei auto: Schnitt, aus dem das Ziel stammt ("6,2 → 5,7")
     float odoKm = NAN;             // Tachostand, NAN = nie eingetragen
     float oilLeftKm = NAN, inspLeftKm = NAN;
+    // Thermostat-Check (A9)
+    uint16_t thermoSeq = 0;
+    bool thermoActive = false;
   };
 
   // Profil laden. saved = gespeicherte Summen dieses Profils oder nullptr (neues Profil).
@@ -93,6 +96,7 @@ class VehicleCalc {
   void maintenanceDone(int which);             // 0 Ölwechsel, 1 Inspektion: Zähler neu
   void setInterval(int which, float km);
   void resetAverages(uint8_t mask);            // Bit 0: 1 km, 1: 10 km, 2: 100 km, 3: Tank
+  void setKmFactor(float f);                   // aus dem GPS-Vergleich (A7)
 
  private:
   void decideTrip(const CarState& s, uint32_t nowMs);
@@ -141,6 +145,12 @@ class VehicleCalc {
   uint32_t detectN_ = 0;
   uint32_t lastGearSearchMs_ = 0;
   perf::SprintMeter sprint_;
+  // Etappe 8
+  void stepThermo(const CarState& s, uint32_t nowMs, float dtS, bool engineOn);
+  uint32_t gpsDate_ = 0;
+  uint32_t gpsEpochAtStop_ = 0;  // GPS-Zeit beim letzten Speichern vor diesem Start (Fahrtende, A8)
+  float thermoDriveS_ = 0, thermoFastS_ = 0, iatStart_ = NAN;
+  bool thermoFired_ = false;
   uint8_t goalMode_ = 0;
   float goalFix_ = cfg::GOAL_FIX_DEFAULT;
   // Spartempo: ruhige Konstantfahrt seit

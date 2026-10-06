@@ -2,7 +2,7 @@
 
 Display im Auto: Ein ESP32-S3 liest über einen BLE-OBD2-Adapter (ELM327-kompatibel) die Fahrzeugdaten und hilft vor allem beim spritsparenden Fahren. Spezifikation: `car-display-plan/master-prompt.md` mit `architektur.md`, `ui-entwurf.md` und der Vorschau.
 
-**Stand: Etappe 7 (Auswertung und Menü).** Aus Etappe 1 bis 3: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit, Simulator, Bluetooth-Verbindung, ELM327-Client, PID-Scheduler, Startbildschirm, Diagnose, Verbrauch, Mittelwerte, Tank und Reichweite, Kalibrierung, Fahrten, Speichern im Flash und Fahrzeugprofile. Etappe 4: Eco-Seite mit Momentanverbrauch, Eco-Kurve, Gang mit Schaltpfeil, Spartipps, Eco-Score, Schub gespart und Gebremst, Gänge lernen, Fahrzeug-Prüfung und Start-Karte. Etappe 5: Übersicht mit belegbaren Kacheln, Großanzeige, Fahrt & Tank, Tank-Fenster mit automatischer Tankerkennung, Diagramme. Etappe 6: Sport-Seite mit Drehzahlbogen und Live-Diagramm, Sprint-Seite mit 0–50, 0–100, 80–120 und Auto-Sprint. Etappe 7: Historie (Fahrten, Tankfüllungen, Auswertung, Spartempo), Fehlercodes mit deutschem Klartext und Löschen, Info-Seite, Menü mit Helligkeit, Spar-Ziel, Fahrzeugart, Wartung und allen Schaltern. Einzelheiten: `docs/etappe4.md` bis `docs/etappe7.md`.
+**Stand: Etappe 8 (optionale Sensoren), alle Etappen fertig.** Aus Etappe 1 bis 3: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit, Simulator, Bluetooth-Verbindung, ELM327-Client, PID-Scheduler, Startbildschirm, Diagnose, Verbrauch, Mittelwerte, Tank und Reichweite, Kalibrierung, Fahrten, Speichern im Flash und Fahrzeugprofile. Etappe 4: Eco-Seite mit Momentanverbrauch, Eco-Kurve, Gang mit Schaltpfeil, Spartipps, Eco-Score, Schub gespart und Gebremst, Gänge lernen, Fahrzeug-Prüfung und Start-Karte. Etappe 5: Übersicht mit belegbaren Kacheln, Großanzeige, Fahrt & Tank, Tank-Fenster mit automatischer Tankerkennung, Diagramme. Etappe 6: Sport-Seite mit Drehzahlbogen und Live-Diagramm, Sprint-Seite mit 0–50, 0–100, 80–120 und Auto-Sprint. Etappe 7: Historie (Fahrten, Tankfüllungen, Auswertung, Spartempo), Fehlercodes mit deutschem Klartext und Löschen, Info-Seite, Menü mit Helligkeit, Spar-Ziel, Fahrzeugart, Wartung und allen Schaltern. Etappe 8: MPU6050 (Einbaulage, Steigung, G-Kraft-Seite), GPS (Uhrzeit, Datum, km-Faktor, Helligkeit nach Sonnenstand), CSV-Export auf microSD, Thermostat-Check. Einzelheiten: `docs/etappe4.md` bis `docs/etappe8.md`.
 
 ## Hardware
 
@@ -55,7 +55,7 @@ OBD: läuft, 11 Werte im Plan
 
 Bitte die Zeile mit den unterstützten PIDs nach der ersten Fahrt aufheben: Sie zeigt, ob der Modus Tankfüllstand (2F) und Gaspedal (49) liefert.
 
-## Bedienung (Stand Etappe 7)
+## Bedienung
 
 | Eingabe | Wirkung |
 |---|---|
@@ -116,18 +116,55 @@ car-display-v2/
 │  ├─ core/                  CarState mit Mutex und Snapshot, Befehls-Queues, calcTask, Profil
 │  ├─ hw/                    Display (TFT_eSPI + DMA, Hintergrundlicht), Touch FT6336U
 │  ├─ obd/                   BLE-Link, ELM327-Client, Antwort-Parser, PID-Scheduler, obdTask
+│  ├─ sensors/               MPU6050 und GPS (sensorTask), Sonnenstand, Ortszeit, Einbaulage (reines C++)
 │  ├─ sim/                   simulierte Fahrt (reines C++) und ihre Task
 │  ├─ storage/               LittleFS und NVS, Profile (JSON), Profil erkennen, storageTask
 │  ├─ ui/                    Theme, Statusleiste, Startbildschirm, Menü, Fenster, Fahrzeugauswahl, Seiten, Schriften
 │  └─ util/                  Zahlenformat, BOOT-Taste, Wischgesten, Verbindungstexte (reines C++)
-├─ test/                     Unit-Tests für `pio test -e native`
-└─ tools/                    Schriften erzeugen
+├─ data/dtc_de.csv           deutscher Klartext der Fehlercodes
+├─ docs/                     Beschreibung jeder Etappe, Spezifikation (docs/plan)
+├─ test/                     Unit-Tests für `pio test -e native` bzw. `-e board_test`
+└─ tools/                    Schriften, Fehlercode-Tabelle, Bildschirmfoto
 ```
+
+## Erste Fahrt
+
+1. `pio run -e freenove -t upload`, Board ins Auto, Adapter in die OBD-Buchse, Zündung an.
+2. Der Startbildschirm zeigt die Schritte bis "Fahrzeug: …". Beim allerersten Mal fragt das Display nach dem Fahrzeug: Im Assistenten Name, Kraftstoff, Hubraum und Tankgröße prüfen (vorausgefüllt mit dem Modus), dann "Speichern".
+3. Menü → Wartung → Tachostand eintragen. Ab dann zählt das Display die km selbst und erinnert an Ölwechsel und Inspektion.
+4. Menü → Diagnose: Unter "Unterstützte PIDs" steht, ob das Auto Tankfüllstand (2F) und Gaspedal (49) liefert. Ohne 2F gibt es keine automatische Tankerkennung, dann nach jedem Tanken "Getankt" (Fahrt & Tank oder Menü).
+5. Einfach fahren. Nach 20–30 min gemischter Fahrt kennt das Display die Gänge (Eco-Seite rechts oben).
+
+## Kalibrierung mit Beleg-Litern
+
+Der Verbrauch wird beim Modus aus Saugrohrdruck und Drehzahl gerechnet und ist anfangs auf etwa ± 10–15 % genau. Genauer wird er so:
+
+1. Vollgetankt losfahren und im Tank-Fenster "vollgetankt" bestätigen (das ist der Startpunkt).
+2. Beim nächsten Vollgetankt-Tanken im Tank-Fenster die **Liter vom Beleg** eintragen (auf die Ziffern tippen) und den Preis prüfen. Mit "vollgetankt" speichern.
+3. Ab 150 km zwischen zwei Vollbetankungen vergleicht die Firmware getankte und berechnete Liter und korrigiert `fuel_cal` zur Hälfte (Grenzen 0,7–1,3). Nach 2–3 solchen Füllungen liegt die Anzeige typisch bei ± 3 %.
+4. Den aktuellen Faktor zeigt Menü → Diagnose → "Verbrauch aus … Kalibrierung 1,05". Ein Verhältnis außerhalb 0,7–1,3 (Tippfehler, Fehlbetankung) wird verworfen.
+
+Mit GPS stellt sich zusätzlich der km-Faktor selbst ein (Tacho-Abweichung), jeweils nach 20 km mit gutem Empfang.
+
+## Optionale Sensoren
+
+- **MPU6050** an den I2C-Stecker (3,3 V, SDA 16, SCL 15). Wird beim Start erkannt. Die Einbaulage lernt er selbst: einmal 3 s stehen, dann geradeaus anfahren. Danach gibt es die Seite G-Kraft, die Sport-Seite zeigt "Längs-G", und Leistung, Bremsenergie und Spartempo rechnen mit der Steigung. Nach einem Umbau: Menü → Diagnose → "Sensor neu einlernen".
+- **GPS NEO-6M / NEO-M8N** an RX = GPIO 2, TX = GPIO 3 (9600 Baud). Dann gibt es in der Statusleiste die Uhrzeit (MEZ/MESZ). Fahrten und Tankfüllungen bekommen ein Datum, und Fahrtende sowie km-Faktor werden genauer. Unter Menü → Helligkeit gibt es "Auto": Sie folgt dem Sonnenstand am aktuellen Ort.
+- **microSD** (FAT32): Menü → Diagnose → "Fahrten exportieren" schreibt `cardisplay_fahrten.csv` und `cardisplay_tankfuellungen.csv` (Semikolon, Dezimalkomma, für Excel). Das geht nur im Stand; im Fahrbetrieb wird nie auf die Karte geschrieben.
+- Menü → Diagnose → "Sensoren" zeigt, was erkannt ist.
+
+## Werkzeuge
+
+- `pio test -e board_test`: alle Unit-Tests direkt auf dem Board (ohne Compiler auf dem PC, etwa 1 min je Testgruppe).
+- `python tools/screenshot.py COM7 bild.png`: Bildschirmfoto vom Board (das Öffnen des Anschlusses startet das Board neu). Über den seriellen Monitor gehen auch `n` / `p` (Seite vor/zurück), `m` (Menü), `g` (Tank-Fenster), `x` (Fenster schließen).
+- `python tools/make_dtc_table.py`: Klartext-Tabelle der Fehlercodes aus `data/dtc_de.csv` neu erzeugen.
 
 ## Fehlersuche
 
 - **"Kein Adapter gefunden":** Zündung an (der Adapter braucht Strom aus der OBD-Buchse)? Eine Handy-App, die mit dem Adapter verbunden ist, schließen; der Adapter nimmt nur eine Verbindung an. Im seriellen Monitor stehen unter "gefunden:" alle Bluetooth-Geräte in der Nähe. Steht der Adapter dort mit einem anderen Namen, diesen Namen in `include/config.h` bei `BLE_ADAPTER_NAME` eintragen.
 - **"Auto antwortet nicht":** Zündung an? Die Firmware sucht das Protokoll automatisch, beim Modus mit KWP dauert das bis zu 15 s.
 - **Bild bleibt schwarz:** Gleich nach dem Start zeigt das Display "Car-Display startet" (noch ohne LVGL). Fehlt auch diese Zeile und bleibt das Licht aus, liegt es an Display, Licht oder Board-Einstellung. Steht die Zeile da, aber es geht nicht weiter, hängt es später: Der serielle Monitor (`pio device monitor`, dann RESET drücken) zeigt mit den Zeilen `Start: …`, bis wohin die Firmware kommt, und in der ersten Zeile den Grund des letzten Neustarts (z. B. ABSTURZ oder WATCHDOG).
+- **Neustart-Schleife ohne eigene Ausgabe** (`rst:0x3 … Saved PC 0x403c…`): Die App muss bei 0x10000 liegen (siehe `partitions.csv`). Nicht verschieben, PlatformIO flasht immer dorthin.
+- **Uhrzeit fehlt:** Erst mit GPS-Fix (Menü → Diagnose → Sensoren). Ohne GPS gibt es keine Uhr, das Board hat keine.
 - **DMA:** `DISPLAY_USE_DMA` in `include/config.h` steht auf `0` (sicherer Weg wie in der alten Firmware), bis DMA auf dem Board bestätigt ist. Mit `1` lässt es sich später erneut testen; zeigt es dann Streifen oder Schwarz, zurück auf `0`.
 - **Wischen geht in die falsche Richtung oder Tippen trifft daneben:** Beim Tippen schreibt der serielle Monitor `Touch: roh … -> x …, y …`. Oben links sollte x und y nahe 0 sein, unten rechts x nahe 319 und y nahe 239. Stimmt das nicht, in `include/board_fnk0104b.h` `BOARD_TOUCH_SWAP_XY`, `BOARD_TOUCH_INVERT_X` und `BOARD_TOUCH_INVERT_Y` anpassen und die Monitor-Zeilen mitschicken.

@@ -239,12 +239,15 @@ class EcoPage : public Page {
     if (s.tempoKm[C100] >= cfg::TEMPO_MIN_KM && s.tempoKm[C120] >= cfg::TEMPO_MIN_KM)
       in.tempoSaveL = s.tempoL[C120] / s.tempoKm[C120] * 100.0f - s.tempoL[C100] / s.tempoKm[C100] * 100.0f;
     tempoSave_ = in.tempoSaveL;
+    in.imuLongMs2 = s.imuReady ? s.imuLong.get(s.now) : NAN;
+    in.slopePct = s.slopePct.get(s.now);
+    in.thermoSeq = s.thermoSeq;
     in.quiet = overlay::isOpen() || s.now - touch::lastTouchMs() < cfg::TIP_TOUCH_QUIET_MS;
     const eco::Tip before = tip_;
     tip_ = tips_.update(in);
     if (tip_ != before) {
       static const char* const NAMES[] = {"aus", "Gang rein", "Sanfter Gas", "Früher vom Gas", "Langer Stand", "Gleichmäßig",
-                                          "Tempo", "Motor kalt"};
+                                          "Tempo", "Motor kalt", "Thermostat"};
       Serial.printf("Hinweis: %s\n", NAMES[static_cast<int>(tip_)]);
     }
     // Pfeil, sobald die Schaltempfehlung 1 s anliegt (A9)
@@ -401,6 +404,12 @@ class EcoPage : public Page {
         font2 = &font_small;
         break;
       }
+      case eco::Tip::Thermo:
+        snprintf(pill, sizeof(pill), "!");
+        snprintf(txt, sizeof(txt), "Motor bleibt kalt");
+        snprintf(txt2, sizeof(txt2), "Thermostat?");
+        warn = true;
+        break;
       case eco::Tip::Steady:
         snprintf(pill, sizeof(pill), "\xE2\x89\x88");  // ≈
         snprintf(txt, sizeof(txt), "Gleichmäßig");

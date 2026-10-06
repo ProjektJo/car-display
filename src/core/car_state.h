@@ -203,10 +203,25 @@ struct CarState {
   trip::TripRecord lastTrip = {};
 
   // --- Optionale Sensoren (Etappe 8) ---
-  bool hasImu = false;
-  bool hasGps = false;
+  bool hasImu = false;                                  // MPU6050 erkannt
+  bool imuReady = false;                                // Einbaulage gelernt
+  Val imuLong{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // Längsbeschleunigung ohne Steigung m/s² (+ = schneller)
+  Val imuLat{NAN, 0, cfg::PID_PERIOD_FAST_MS};         // Querbeschleunigung m/s² (+ = links)
+  Val slopePct{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Steigung % (+ = bergauf)
+  bool hasGps = false;                                  // GPS liefert NMEA
+  bool gpsFix = false;
+  uint8_t gpsSats = 0;
   bool gpsTimeValid = false;
   uint8_t gpsHour = 0, gpsMinute = 0;                  // Ortszeit
+  uint32_t gpsDate = 0;                                 // Ortsdatum JJJJMMTT, 0 = unbekannt
+  uint32_t gpsEpoch = 0;                                // UTC, s seit 1970
+  float nightFactor = NAN;                              // Sonnenstand: 0 Tag … 1 Nacht, NAN ohne Fix
+  bool hasSd = false;                                   // microSD erkannt (Export)
+  uint16_t exportSeq = 0;                               // zählt jeden Export hoch
+  char exportMsg[48] = "";                              // Ergebnis des letzten Exports
+  // Thermostat-Check (A9, Z 10)
+  uint16_t thermoSeq = 0;                               // zählt hoch, wenn der Hinweis einmal erscheinen soll
+  bool thermoActive = false;                            // Eintrag "Hinweis · kein Fehlercode"
 };
 
 // Kopie für die UI, mit dem Zeitpunkt der Kopie

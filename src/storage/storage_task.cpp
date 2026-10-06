@@ -5,6 +5,8 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <esp_heap_caps.h>
+#include <FS.h>
+#include <SD_MMC.h>
 
 #include <cmath>
 #include <cstring>
@@ -23,7 +25,7 @@ namespace {
 constexpr uint32_t LOOP_MS = 50;
 constexpr uint8_t QUEUE_LEN = 8;
 
-enum class MsgType : uint8_t { SaveProfile, AppendTrip, AppendFill, Choose, Dismiss, Create, SaveUi };
+enum class MsgType : uint8_t { SaveProfile, AppendTrip, AppendFill, Choose, Dismiss, Create, SaveUi, SaveImu, Export };
 struct Msg {
   MsgType type;
   uint8_t id;
@@ -31,6 +33,7 @@ struct Msg {
   trip::TripRecord trip;
   trip::FillRecord fill;
   UiSettings ui;
+  float axes[6];
 };
 
 QueueHandle_t queue = nullptr;
@@ -215,6 +218,109 @@ void identify() {
   setAsking(true);
 }
 
+// ---------- microSD: nur beim Export (A8), nie im Fahrbetrieb ----------
+bool sdMounted = false;
+
+void sdBegin() {
+  SD_MMC.setPins(BOARD_PIN_SD_CLK, BOARD_PIN_SD_CMD, BOARD_PIN_SD_D0, BOARD_PIN_SD_D1, BOARD_PIN_SD_D2, BOARD_PIN_SD_D3);
+  sdMounted = SD_MMC.begin("/sdcard", false, false);
+  if (sdMounted) Serial.printf("Speicher: microSD erkannt (%u MB)\n", (unsigned)(SD_MMC.cardSize() / (1024 * 1024)));
+  carstate::modify([](CarState& s) { s.hasSd = sdMounted; });
+}
+
+void exportMessage(const char* text) {
+  Serial.printf("Export: %s\n", text);
+  carstate::modify([&](CarState& s) {
+    snprintf(s.exportMsg, sizeof(s.exportMsg), "%s", text);
+    s.exportSeq++;
+  });
+}
+
+// Zahl mit Dezimalkomma für die CSV (Excel in Deutsch), leer ohne Wert
+void csvNum(char* out, size_t size, float v, int dec) {
+  if (std::isnan(v)) {
+    out[0] = '\0';
+    return;
+  }
+  snprintf(out, size, "%.*f", dec, v);
+  for (char* p = out; *p; p++)
+    if (*p == '.') *p = ',';
+}
+
+void csvDate(char* out, size_t size, uint32_t ymd) {
+  if (!ymd) {
+    out[0] = '\0';
+    return;
+  }
+  snprintf(out, size, "%02u.%02u.%04u", (unsigned)(ymd % 100), (unsigned)(ymd / 100 % 100), (unsigned)(ymd / 10000));
+}
+
+void exportCsv() {
+  // Nie im Fahrbetrieb auf die SD schreiben (A8): nur bei Stillstand bzw. Motor aus
+  bool moving = true;
+  {
+    CarState& s = carstate::lock();
+    const float v = s.speed.get(millis());
+    moving = !std::isnan(v) && v >= 1.0f;
+    carstate::unlock();
+  }
+  if (moving) return exportMessage("Nur im Stand möglich");
+  if (!sdMounted) sdBegin();
+  if (!sdMounted) return exportMessage("Keine microSD gefunden");
+  if (!activeId) return exportMessage("Kein Fahrzeugprofil geladen");
+  // Die Puffer der Historie (PSRAM) mitbenutzen; danach ist die Historie ohnehin aktuell
+  if (!hist.trips || !hist.fills) return exportMessage("Kein Speicher");
+  xSemaphoreTake(histMutex, portMAX_DELAY);
+  hist.nTrips = store::readTrips(activeId, hist.trips, cfg::TRIP_LOG_SIZE);
+  hist.nFills = store::readFills(activeId, hist.fills, cfg::FILL_LOG_SIZE);
+  xSemaphoreGive(histMutex);
+  histSeq++;
+  const trip::TripRecord* trips = hist.trips;
+  const trip::FillRecord* fills = hist.fills;
+  const int nt = hist.nTrips, nf = hist.nFills;
+  char a[16], b[16], c[16], d[16], e[16], f[16], g[16], h[16], k[16], date[16];
+  File out = SD_MMC.open("/cardisplay_fahrten.csv", FILE_WRITE);
+  if (!out) return exportMessage("Datei lässt sich nicht schreiben");
+  out.print("Fahrt;Datum;km;Liter;l/100 km;Dauer min;Leerlauf min;Schub min;Gebremst l;Eco-Score;max U/min;max Kühlmittel;Kosten EUR\r\n");
+  for (int i = 0; i < nt; i++) {
+    const trip::TripRecord& t = trips[i];
+    csvDate(date, sizeof(date), t.date);
+    csvNum(a, sizeof(a), t.km, 1);
+    csvNum(b, sizeof(b), t.liters, 2);
+    csvNum(c, sizeof(c), t.km > 0 ? t.liters / t.km * 100 : NAN, 1);
+    csvNum(d, sizeof(d), t.durationS / 60, 0);
+    csvNum(e, sizeof(e), t.idleS / 60, 1);
+    csvNum(f, sizeof(f), t.cutS / 60, 1);
+    csvNum(g, sizeof(g), t.brakedL, 2);
+    csvNum(h, sizeof(h), t.ecoScore, 0);
+    csvNum(k, sizeof(k), t.cost, 2);
+    char maxRpm[16], maxC[16];
+    csvNum(maxRpm, sizeof(maxRpm), t.maxRpm, 0);
+    csvNum(maxC, sizeof(maxC), t.maxCoolantC, 0);
+    out.printf("%u;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s\r\n", t.number, date, a, b, c, d, e, f, g, h, maxRpm, maxC, k);
+  }
+  out.close();
+  out = SD_MMC.open("/cardisplay_tankfuellungen.csv", FILE_WRITE);
+  if (!out) return exportMessage("Datei lässt sich nicht schreiben");
+  out.print("Füllung;Datum;km seit voriger;Liter;voll;Preis EUR/l;l/100 km;EUR/100 km;Liter aus\r\n");
+  static const char* const SRC[] = {"Tankanzeige", "Berechnung", "Beleg"};
+  for (int i = 0; i < nf; i++) {
+    const trip::FillRecord& t = fills[i];
+    csvDate(date, sizeof(date), t.date);
+    csvNum(a, sizeof(a), t.kmSinceLast, 0);
+    csvNum(b, sizeof(b), t.liters, 2);
+    csvNum(c, sizeof(c), t.price, 3);
+    csvNum(d, sizeof(d), t.l100, 1);
+    csvNum(e, sizeof(e), t.costPer100, 2);
+    out.printf("%u;%s;%s;%s;%s;%s;%s;%s;%s\r\n", t.number, date, a, b, t.full ? "ja" : "nein", c, d, e,
+               SRC[static_cast<int>(t.source) < 3 ? static_cast<int>(t.source) : 0]);
+  }
+  out.close();
+  char msg[48];
+  snprintf(msg, sizeof(msg), "%d Fahrten, %d Tankfüllungen gespeichert", nt, nf);
+  exportMessage(msg);
+}
+
 void handle(const Msg& m) {
   switch (m.type) {
     case MsgType::SaveProfile: {
@@ -226,6 +332,7 @@ void handle(const Msg& m) {
       p.gearCount = m.profile.gearCount;  // Gänge lernt calcTask selbst (A6)
       p.body = m.profile.body;            // Fahrzeugart und Kalt-Grenze aus dem Menü
       p.coldRpmLimit = m.profile.coldRpmLimit;
+      p.kmFactor = m.profile.kmFactor;  // mit GPS nachgeführt
       memcpy(p.gears, m.profile.gears, sizeof(p.gears));
       if (store::saveProfile(p)) refreshList();
       carstate::modify([&](CarState& s) {
@@ -274,6 +381,12 @@ void handle(const Msg& m) {
     }
     case MsgType::SaveUi:
       store::saveUi(m.ui);
+      break;
+    case MsgType::SaveImu:
+      store::saveImuAxes(m.id, m.axes);
+      break;
+    case MsgType::Export:
+      exportCsv();
       break;
     case MsgType::Create: {
       const uint8_t id = create(m.profile);
@@ -365,6 +478,20 @@ void createProfile(const Profile& p) {
   send(m);
 }
 
+void saveImuAxes(uint8_t profileId, const float axes[6]) {
+  static Msg m;  // nur von sensorTask aufgerufen
+  m.type = MsgType::SaveImu;
+  m.id = profileId;
+  memcpy(m.axes, axes, sizeof(m.axes));
+  send(m);
+}
+
+void requestExport() {
+  static Msg m;  // nur von uiTask aufgerufen
+  m.type = MsgType::Export;
+  send(m);
+}
+
 void saveUi(const UiSettings& ui) {
   static Msg m;  // nur von uiTask aufgerufen
   m.type = MsgType::SaveUi;
@@ -382,6 +509,9 @@ int summaries(ProfileSummary* out, int max) {
 
 void begin() {
   store::begin();
+#ifndef SIMULATE_OBD
+  sdBegin();  // nur erkennen; geschrieben wird erst beim Export
+#endif
   refreshList();
   // Zuletzt benutztes Profil gleich laden: Mittelwerte, Tank und Reichweite stehen schon vor dem
   // Verbinden da. Passt das Auto nicht dazu, wechselt die Erkennung bzw. es kommt die Frage.

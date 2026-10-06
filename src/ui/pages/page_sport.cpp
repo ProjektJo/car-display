@@ -187,7 +187,12 @@ class SportPage : public Page {
     fmt::number(b, sizeof(b), std::isnan(kw) ? NAN : kw * cfg::KW_TO_PS, 0);
     snprintf(t, sizeof(t), std::isnan(kw) ? "%s" : "%s kW " SYM_DOT " %s PS", a, b);
     setBar(0, t, std::isnan(kw) ? 0 : kw / (s.profile.powerKw > 0 ? s.profile.powerKw : 55), theme::ACCENT);
-    const float accRaw = s.accel.get(s.now);
+    // Mit MPU6050 gemessen und als Längs-G beschriftet (A10)
+    const float accRaw = s.imuReady ? s.imuLong.get(s.now) : s.accel.get(s.now);
+    if (s.imuReady != shownImu_) {
+      shownImu_ = s.imuReady;
+      lv_label_set_text_static(bars_[1].label, s.imuReady ? "Längs-G" : "Beschleunigung");
+    }
     // auf 0,1 gerundet, damit kein "–0,0" erscheint
     const float acc = std::isnan(accRaw) ? NAN : std::round(accRaw * 10.0f) / 10.0f + 0.0f;
     fmt::number(a, sizeof(a), std::isnan(acc) ? NAN : std::fabs(acc), 1);
@@ -404,6 +409,7 @@ class SportPage : public Page {
   char shownHead_[40] = "";
   bool shownArrow_ = false;
   bool shownRunning_ = false;
+  bool shownImu_ = false;
   uint32_t shiftSince_ = 0;
   int drawnRpm_ = -2;
   uint32_t drawnSeq_ = 0;

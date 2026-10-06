@@ -259,6 +259,25 @@ bool loadUi(UiSettings& ui) {
   return true;
 }
 
+bool loadImuAxes(uint8_t id, float axes[6]) {
+  Preferences prefs;
+  if (!prefs.begin(NVS_NAMESPACE, true)) return false;
+  char key[8];
+  snprintf(key, sizeof(key), "imu%u", id);
+  const bool ok = prefs.getBytesLength(key) == sizeof(float) * 6 && prefs.getBytes(key, axes, sizeof(float) * 6) == sizeof(float) * 6;
+  prefs.end();
+  return ok && (axes[0] != 0 || axes[1] != 0 || axes[2] != 0);
+}
+
+void saveImuAxes(uint8_t id, const float axes[6]) {
+  Preferences prefs;
+  if (!prefs.begin(NVS_NAMESPACE, false)) return;
+  char key[8];
+  snprintf(key, sizeof(key), "imu%u", id);
+  prefs.putBytes(key, axes, sizeof(float) * 6);
+  prefs.end();
+}
+
 void saveUi(const UiSettings& ui) {
   Preferences prefs;
   if (!prefs.begin(NVS_NAMESPACE, false)) return;

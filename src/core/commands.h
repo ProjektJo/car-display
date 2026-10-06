@@ -18,6 +18,8 @@ enum class CmdType : uint8_t {
   MaintDone,    // an calcTask: Wartung erledigt, i = 0 Öl / 1 Inspektion
   SetInterval,  // an calcTask: Wartungsintervall, i = 0 Öl / 1 Inspektion, f = km
   ResetAvg,     // an calcTask: Mittelwerte zurücksetzen, i = Bitmaske (1 km, 10 km, 100 km, Tank)
+  SetKmFactor,  // an calcTask: km-Faktor aus dem GPS-Vergleich, f = Faktor
+  ImuRelearn,   // an sensorTask: Einbaulage neu einlernen
   // Weitere Befehle folgen mit den Etappen (Fehlercodes lesen/löschen ...)
 };
 

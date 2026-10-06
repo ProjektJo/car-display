@@ -10,12 +10,14 @@
 #include "core/calc_task.h"
 #include "core/car_state_store.h"
 #include "core/commands.h"
+#include "hw/i2c_bus.h"
 #include "storage/storage_task.h"
 #include "ui/ui.h"
 #ifdef SIMULATE_OBD
 #include "sim/sim_task.h"
 #else
 #include "obd/obd_task.h"
+#include "sensors/sensor_task.h"
 #endif
 
 namespace {
@@ -52,6 +54,7 @@ void setup() {
 
   // Gemeinsamer I2C-Bus für Touch und später MPU6050
   Wire.begin(BOARD_PIN_I2C_SDA, BOARD_PIN_I2C_SCL, BOARD_I2C_FREQ_HZ);
+  i2cbus::init();
 
   carstate::init();
   commands::init();
@@ -70,6 +73,11 @@ void setup() {
   xTaskCreatePinnedToCore(sim::task, "obd", cfg::OBD_TASK_STACK, nullptr, cfg::OBD_TASK_PRIO, nullptr, cfg::CORE_DATA);
 #else
   xTaskCreatePinnedToCore(obd::task, "obd", cfg::OBD_TASK_STACK, nullptr, cfg::OBD_TASK_PRIO, nullptr, cfg::CORE_DATA);
+#endif
+#ifndef SIMULATE_OBD
+  // Optionale Sensoren (MPU6050, GPS); im Simulator spielt sim::task auch diese nach
+  xTaskCreatePinnedToCore(sensors::task, "sensor", cfg::SENSOR_TASK_STACK, nullptr, cfg::SENSOR_TASK_PRIO, nullptr,
+                          cfg::CORE_DATA);
 #endif
   xTaskCreatePinnedToCore(calc::task, "calc", cfg::CALC_TASK_STACK, nullptr, cfg::CALC_TASK_PRIO, nullptr, cfg::CORE_DATA);
   xTaskCreatePinnedToCore(storage::task, "storage", cfg::STORAGE_TASK_STACK, nullptr, cfg::STORAGE_TASK_PRIO, nullptr,

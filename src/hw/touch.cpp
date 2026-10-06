@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <Wire.h>
 
+#include "hw/i2c_bus.h"
+
 #include "config.h"
 
 namespace touch {
@@ -24,6 +26,7 @@ bool wasPressed = false;
 int16_t lastX = 0, lastY = 0;
 
 bool readRaw(uint16_t& rx, uint16_t& ry) {
+  i2cbus::Guard bus;  // Bus mit dem MPU6050 geteilt
   Wire.beginTransmission(BOARD_TOUCH_I2C_ADDR);
   Wire.write(REG_TD_STATUS);
   if (Wire.endTransmission(false) != 0) return false;

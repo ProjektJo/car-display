@@ -19,7 +19,7 @@ namespace cfg {
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
-constexpr const char* FW_VERSION = "2.0.4-etappe7";
+constexpr const char* FW_VERSION = "2.1.0";
 
 // ---------------------------------------------------------------------------
 // Aufgaben und Takt (A5)
@@ -358,6 +358,42 @@ constexpr float TEMPO_MIN_KM = 5.0f;
 // Tempo-Tipp (A9): > 115 km/h seit > 30 s, Ersparnis aus den Klassen 100 und 120
 constexpr float TIP_TEMPO_KMH = 115.0f;
 constexpr uint32_t TIP_TEMPO_HOLD_MS = 30000;
+
+// ---------------------------------------------------------------------------
+// Optionale Sensoren (A3, A10, Etappe 8)
+// ---------------------------------------------------------------------------
+constexpr uint32_t SENSOR_PERIOD_MS = 10;         // MPU6050 100-mal pro Sekunde (A10)
+constexpr uint8_t SENSOR_TASK_PRIO = 3;           // sensorTask (A5)
+constexpr uint32_t SENSOR_TASK_STACK = 6 * 1024;
+constexpr uint32_t GPS_BAUD = 9600;
+// Einbaulage lernen (A10): 3 s Stillstand = "oben", geradeaus beschleunigen = "vorne"
+constexpr float IMU_LEARN_UP_S = 3.0f;
+constexpr float IMU_STILL_GYRO_RAD_S = 0.03f;     // ANNAHME: still = Drehrate unter 1,7 °/s
+constexpr float IMU_STRAIGHT_GYRO_RAD_S = 0.05f;  // ANNAHME: geradeaus = Drehrate unter 3 °/s
+constexpr float IMU_LEARN_FWD_MIN_MS2 = 1.0f;     // ANNAHME: deutlich beschleunigen = über 1 m/s² laut OBD
+constexpr float IMU_LEARN_FWD_S = 1.5f;
+constexpr float IMU_BIAS_STAND_S = 3.0f;          // Gyro-Nullpunkt bei jedem Stillstand über 3 s (A10)
+constexpr float IMU_SLOPE_TAU_S = 3.0f;           // ANNAHME: Steigung aus OBD-Vergleich mit τ = 3 s
+constexpr float IMU_OVERTAKE_MS2 = 1.5f;          // Überholvorgang: Längsbeschleunigung hoch (A9 Sanfter Gas)
+constexpr float SLOPE_UPHILL_PCT = 3.0f;          // ANNAHME: "am Berg" ab 3 % Steigung (kein "Sanfter Gas")
+constexpr float TEMPO_MAX_SLOPE_PCT = 1.0f;       // Spartempo nur bei Steigung unter 1 % (Z 1)
+constexpr float G_FORCE_RANGE = 0.6f;             // G-Kraft-Seite: Kreis bis 0,6 g (Vorschau)
+// GPS: km-Faktor (A7 Genauigkeit). ANNAHME: nach 20 km mit gutem Empfang (≥ 5 Satelliten, > 30 km/h)
+// wird der Faktor zur Hälfte nachgeführt, Grenzen 0,9–1,1.
+constexpr float KMF_MIN_KM = 20.0f;
+constexpr float KMF_MIN_SPEED_KMH = 30.0f;
+constexpr uint8_t KMF_MIN_SATS = 5;
+constexpr float KMF_MIN = 0.9f, KMF_MAX = 1.1f;
+constexpr uint32_t TRIP_GPS_PAUSE_S = 300;        // mit GPS-Uhrzeit: Pause > 5 min = neue Fahrt (A8)
+constexpr float SUN_TRANSITION_MIN = 15.0f;       // Tag/Nacht mit 15 min Übergang (A9 Sonnenstand)
+// Thermostat-Check (A9, Z 10): Fahrzeit > 15 min, davon > 8 min über 50 km/h, Kühlmittel < 75 °C,
+// Ansaugluft beim Start > −5 °C; höchstens alle 10 Starts
+constexpr float THERMO_DRIVE_S = 15 * 60.0f;
+constexpr float THERMO_FAST_S = 8 * 60.0f;
+constexpr float THERMO_FAST_KMH = 50.0f;
+constexpr float THERMO_COOLANT_C = 75.0f;
+constexpr float THERMO_MIN_IAT_C = -5.0f;
+constexpr uint16_t THERMO_EVERY_STARTS = 10;
 
 // Start-Karte (U Start-Karte, Z 12): aus der letzten Fahrt, wenn ≥ 1 km; 6 s, Tippen oder > 5 km/h schließt
 constexpr float START_CARD_MIN_KM = 1.0f;

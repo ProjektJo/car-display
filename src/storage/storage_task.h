@@ -41,6 +41,10 @@ struct History {
   trip::FillRecord* fills = nullptr;  // PSRAM, cfg::FILL_LOG_SIZE Einträge
 };
 void requestHistory();
+// Einbaulage des MPU6050 speichern (sensorTask)
+void saveImuAxes(uint8_t profileId, const float axes[6]);
+// CSV-Export auf die microSD (A8): nur im Stand; Ergebnis in CarState::exportMsg
+void requestExport();
 uint16_t historySeq();
 // Nur lesen, solange lockHistory() gehalten wird
 const History& lockHistory();

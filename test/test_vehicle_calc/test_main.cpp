@@ -300,6 +300,42 @@ void test_maintenance() {
   TEST_ASSERT_FLOAT_WITHIN(0.3f, 10000.0f - 1.1f, calc.out().oilLeftKm);
 }
 
+// Thermostat (A9): 16 min Fahrt, davon > 8 min über 50 km/h, Kühlmittel 65 °C -> einmal Hinweis;
+// wird der Motor warm, verschwindet der Eintrag; beim nächsten Start (innerhalb von 10) kein neuer Hinweis
+static void drive(VehicleCalc& calc, CarState& s, uint32_t& now, float minutes, float speed, float coolant) {
+  for (int i = 0; i < static_cast<int>(minutes * 600); i++) {
+    now += 100;
+    s.speed.set(speed, now);
+    s.rpm.set(2200, now);
+    s.map.set(45, now);
+    s.iat.set(15, now);
+    s.fuelSys.set(2, now);
+    s.coolant.set(coolant, now);
+    calc.step(s, now, 0.1f);
+  }
+}
+
+void test_thermostat() {
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x11});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  drive(calc, s, now, 7, 40, 65);
+  TEST_ASSERT_EQUAL_UINT16(0, calc.out().thermoSeq);
+  drive(calc, s, now, 9, 80, 65);  // 16 min, davon 9 über 50
+  TEST_ASSERT_EQUAL_UINT16(1, calc.out().thermoSeq);
+  TEST_ASSERT_TRUE(calc.out().thermoActive);
+  drive(calc, s, now, 1, 80, 85);  // wird warm
+  TEST_ASSERT_FALSE(calc.out().thermoActive);
+  // Neustart: höchstens alle 10 Starts
+  const PersistState saved = calc.state();
+  VehicleCalc c2;
+  c2.load(simProfile(), &saved);
+  drive(c2, s, now, 17, 80, 65);
+  TEST_ASSERT_EQUAL_UINT16(0, c2.out().thermoSeq);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_sim_drive_liters);
@@ -311,6 +347,7 @@ int main() {
   RUN_TEST(test_refuel_detection);
   RUN_TEST(test_auto_goal);
   RUN_TEST(test_maintenance);
+  RUN_TEST(test_thermostat);
   return UNITY_END();
 }
 

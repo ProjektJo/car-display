@@ -115,6 +115,7 @@ uint32_t scoreColor(float s) {
 // Zusammengefasste Daten (beim Laden berechnet)
 struct TripBar {
   uint16_t number;
+  uint32_t date;  // JJJJMMTT mit GPS, sonst 0
   float km, avg, min, cost, braked, score;
 };
 
@@ -226,6 +227,7 @@ class HistoryPage : public Page {
       const trip::TripRecord& t = h.trips[i];
       TripBar& b = bars_[nBars_++];
       b.number = t.number;
+      b.date = t.date;
       b.km = t.km;
       b.avg = t.km > 0 ? t.liters / t.km * 100 : NAN;
       b.min = t.durationS / 60.0f;
@@ -302,7 +304,11 @@ class HistoryPage : public Page {
     const TripBar& b = bars_[i];
     const int32_t by = oy + TOP + 110;
     rect(layer, ox + 10, by, ox + BOARD_LCD_HOR_RES - 10, by + 52, theme::SURFACE, theme::RADIUS_TILE);
-    snprintf(t, sizeof(t), "Fahrt %u%s", b.number, sel_ < 0 ? " (letzte)" : "");
+    if (b.date)  // mit GPS zusätzlich das Datum (U Seite 9)
+      snprintf(t, sizeof(t), "Fahrt %u " SYM_DOT " %02u.%02u.%s", b.number, (unsigned)(b.date % 100),
+               (unsigned)(b.date / 100 % 100), sel_ < 0 ? " (letzte)" : "");
+    else
+      snprintf(t, sizeof(t), "Fahrt %u%s", b.number, sel_ < 0 ? " (letzte)" : "");
     text(layer, t, ox + 19, by + 4, 150, LV_TEXT_ALIGN_LEFT, theme::TEXT, &font_m12);
     char n[16];
     fmt::number(n, sizeof(n), b.score, 0);

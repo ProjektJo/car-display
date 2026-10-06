@@ -6,6 +6,8 @@
 
 #include "config.h"
 #include "core/commands.h"
+#include "sensors/sensor_task.h"
+#include "storage/storage_task.h"
 #include "ui/numpad.h"
 #include "ui/overlay.h"
 #include "ui/symbols.h"
@@ -46,7 +48,8 @@ const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeugart"
 lv_obj_t* menuValues[M_COUNT] = {};
 char menuShown[M_COUNT][32] = {};
 
-enum DiagRow { ROW_VEHICLE, ROW_ADAPTER, ROW_PROTOCOL, ROW_VIN, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_BODY, ROW_RESET, ROW_COUNT };
+enum DiagRow { ROW_VEHICLE, ROW_ADAPTER, ROW_PROTOCOL, ROW_VIN, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_BODY, ROW_RESET, ROW_SENSORS,
+               ROW_IMU, ROW_EXPORT, ROW_COUNT };
 lv_obj_t* diagValues[ROW_COUNT] = {};
 char diagShown[ROW_COUNT][48] = {};
 
@@ -460,6 +463,8 @@ void onDone(lv_event_t*) { overlay::close(); }
 void onBackToMenu(lv_event_t*) { open(); }
 void onVehicleRow(lv_event_t*) { vehicledlg::openChooser(); }
 void onResetRow(lv_event_t*) { openResetAvg(); }
+void onImuRow(lv_event_t*) { sensors::requestRelearn(); }
+void onExportRow(lv_event_t*) { storage::requestExport(); }
 
 }  // namespace
 
@@ -501,7 +506,8 @@ void openDiagnose() {
   memset(diagShown, 0, sizeof(diagShown));
 
   static const char* const KEYS[ROW_COUNT] = {"Fahrzeug", "Adapter", "Protokoll", "VIN", "Abfragen", "Unterstützte PIDs",
-                                              "Verbrauch aus", "Fahrzeugart", "Mittelwerte"};
+                                              "Verbrauch aus", "Fahrzeugart", "Mittelwerte", "Sensoren",
+                                              "Sensor neu einlernen", "Fahrten exportieren"};
   lv_obj_set_style_pad_row(card, 0, 0);
   lv_obj_t* title = lv_obj_get_child(card, 0);
   lv_obj_set_style_margin_bottom(title, 10, 0);
@@ -509,14 +515,21 @@ void openDiagnose() {
   lv_obj_add_flag(card, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_AUTO);
   for (int i = 0; i < ROW_COUNT; i++) {
+    // Ohne Sensor bzw. ohne microSD fehlen die zugehörigen Zeilen (M Optionale Sensoren)
+    if ((i == ROW_IMU && !snap.hasImu) || (i == ROW_EXPORT && !snap.hasSd)) {
+      diagValues[i] = nullptr;
+      continue;
+    }
     lv_obj_t* r = row(card, KEYS[i], &diagValues[i], LV_PCT(100));
     lv_obj_set_width(diagValues[i], DIAG_VALUE_W);
     lv_obj_set_style_text_align(diagValues[i], LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_long_mode(diagValues[i], LV_LABEL_LONG_WRAP);
-    if (i == ROW_VEHICLE || i == ROW_RESET) {
-      // Profil wechseln oder neu anlegen; Mittelwerte zurücksetzen (U Menü: Seltenes im Diagnose-Dialog)
+    if (i == ROW_VEHICLE || i == ROW_RESET || i == ROW_IMU || i == ROW_EXPORT) {
+      // Profil wechseln oder neu anlegen, Mittelwerte zurücksetzen, Sensor einlernen, Export
+      // (U Menü: Seltenes im Diagnose-Dialog)
       pressable(r);
-      lv_obj_add_event_cb(r, i == ROW_VEHICLE ? onVehicleRow : onResetRow, LV_EVENT_CLICKED, nullptr);
+      lv_event_cb_t cb = i == ROW_VEHICLE ? onVehicleRow : i == ROW_RESET ? onResetRow : i == ROW_IMU ? onImuRow : onExportRow;
+      lv_obj_add_event_cb(r, cb, LV_EVENT_CLICKED, nullptr);
       lv_obj_set_style_text_color(diagValues[i], theme::c(theme::ACCENT), 0);
     }
   }
@@ -643,6 +656,19 @@ void update(const CarSnapshot& s) {
     snprintf(text, sizeof(text), "%s", fmt::NO_VALUE);
   setText(diagValues[ROW_BODY], diagShown[ROW_BODY], sizeof(diagShown[0]), text);
   setText(diagValues[ROW_RESET], diagShown[ROW_RESET], sizeof(diagShown[0]), "zurücksetzen");
+  // Optionale Sensoren
+  {
+    char g[32];
+    if (s.hasGps)
+      snprintf(g, sizeof(g), "GPS %s (%u Sat.)", s.gpsFix ? "Fix" : "ohne Fix", (unsigned)s.gpsSats);
+    else
+      snprintf(g, sizeof(g), "kein GPS");
+    snprintf(text, sizeof(text), "%s, %s%s", s.hasImu ? (s.imuReady ? "MPU6050 bereit" : "MPU6050 lernt") : "kein MPU6050", g,
+             s.hasSd ? ", microSD" : "");
+    setText(diagValues[ROW_SENSORS], diagShown[ROW_SENSORS], sizeof(diagShown[0]), text);
+  }
+  setText(diagValues[ROW_IMU], diagShown[ROW_IMU], sizeof(diagShown[0]), s.imuReady ? "neu lernen" : "lernt …");
+  setText(diagValues[ROW_EXPORT], diagShown[ROW_EXPORT], sizeof(diagShown[0]), s.exportMsg[0] ? s.exportMsg : "CSV auf microSD");
 }
 
 }  // namespace menu
