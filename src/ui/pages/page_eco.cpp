@@ -32,6 +32,8 @@ constexpr int32_t CX0 = 26, CX1 = 300, CY0 = 64, CH = 86;
 constexpr int32_t POINTS = 5;
 constexpr int32_t CURVE_W = 2;
 constexpr int32_t DOT_R = 4, DOT_R_NOW = 5;
+constexpr int32_t TRIP_R = 5;          // Fahrt-Punkt: Ring
+constexpr int32_t TRIP_LABEL_GAP = 30; // feste Achsen-Beschriftung näher als das: ausblenden
 constexpr int32_t GRID_STEP = 4;      // Raster bei 0, 4, 8, 12 l/100 km
 constexpr lv_opa_t FILL_OPA = 46;     // schwache Flächenfüllung unter der Kurve (≈ 0,18)
 constexpr lv_opa_t REF_OPA = 180;     // Bezugslinie Tank-Schnitt (Vorschau: 0,7)
@@ -45,7 +47,7 @@ const char* const X_LABELS[POINTS] = {"Tank", "100 km", "10 km", "1 km", "Moment
 // Momentanverbrauch in Montserrat 38 (LVGL, nur ASCII); fehlende Zeichen wie "–" aus font_m28
 lv_font_t font38;
 
-float sx(int i) { return CX0 + 20 + i * ((CX1 - CX0 - 40) / 4.0f); }
+float sx(float i) { return CX0 + 20 + i * ((CX1 - CX0 - 40) / 4.0f); }
 float sy(float v) {
   const float c = v < 0 ? 0 : (v > cfg::ECO_CURVE_TOP_L100 ? cfg::ECO_CURVE_TOP_L100 : v);
   return CY0 + CH - c / cfg::ECO_CURVE_TOP_L100 * CH;
@@ -69,13 +71,16 @@ struct Curve {
   float ref;            // Bezug für die Farben
   float goal;           // Spar-Ziel, NAN = aus
   float tank;           // Tank-Schnitt (Bezugslinie ohne Ziel)
+  float tripV = NAN;    // Ø Fahrt
+  float tripPos = NAN;  // Lage auf der Achse (eco::tripAxisPos), NAN = kein Fahrt-Punkt
 };
 
 bool sameCurve(const Curve& a, const Curve& b) {
   auto eq = [](float x, float y) { return (std::isnan(x) && std::isnan(y)) || std::fabs(x - y) < 0.05f; };
   for (int i = 0; i < POINTS; i++)
     if (!eq(a.v[i], b.v[i])) return false;
-  return eq(a.ref, b.ref) && eq(a.goal, b.goal) && eq(a.tank, b.tank);
+  return eq(a.ref, b.ref) && eq(a.goal, b.goal) && eq(a.tank, b.tank) && eq(a.tripV, b.tripV) &&
+         ((std::isnan(a.tripPos) && std::isnan(b.tripPos)) || std::fabs(a.tripPos - b.tripPos) < 0.01f);
 }
 
 void drawLine(lv_layer_t* layer, float x1, float y1, float x2, float y2, uint32_t color, int32_t w, lv_opa_t opa = LV_OPA_COVER,
@@ -343,6 +348,8 @@ class EcoPage : public Page {
     c.ref = ref;
     c.goal = goal;
     c.tank = tank;
+    c.tripV = s.avgTrip.get(s.now);
+    c.tripPos = std::isnan(c.tripV) ? NAN : eco::tripAxisPos(s.tripKm.get(s.now), s.fillKm.get(s.now));
     if (!sameCurve(c, curve_) && s.now - lastDraw_ >= cfg::CHART_MIN_REDRAW_MS) {
       curve_ = c;
       lastDraw_ = s.now;
@@ -516,9 +523,12 @@ class EcoPage : public Page {
         }
       }
     }
+    const bool trip = !std::isnan(c.tripPos);
+    const float tx = trip ? ox + sx(c.tripPos) : 0;
     for (int i = 0; i < POINTS; i++) {
       const float x = ox + sx(i);
-      drawText(layer, X_LABELS[i], static_cast<int32_t>(x) - 36, oy + CY0 + CH + 3, 72, LV_TEXT_ALIGN_CENTER, theme::MUTED);
+      if (!trip || std::fabs(x - tx) >= TRIP_LABEL_GAP)
+        drawText(layer, X_LABELS[i], static_cast<int32_t>(x) - 36, oy + CY0 + CH + 3, 72, LV_TEXT_ALIGN_CENTER, theme::MUTED);
       if (std::isnan(c.v[i])) {
         if (i == POINTS - 1)
           drawText(layer, "Stand", static_cast<int32_t>(x) - 30, oy + CY0 + CH - 18, 60, LV_TEXT_ALIGN_CENTER, theme::MUTED);
@@ -548,6 +558,39 @@ class EcoPage : public Page {
       const bool above = y - 7 > oy + CY0 - 4;
       drawText(layer, t, static_cast<int32_t>(x) - 30, static_cast<int32_t>(above ? y - 20 : y + 6), 60, LV_TEXT_ALIGN_CENTER, col);
     }
+    if (trip) drawTrip(layer, ox, oy, tx, c);
+  }
+
+  // Fahrt-Punkt (Jos Wunsch): Ring auf Höhe Ø Fahrt, wandert mit den gefahrenen km über die Achse;
+  // gestrichelte Linie zur Achse, darunter "Fahrt", Wert seitlich neben dem Ring (feste Werte stehen darüber/darunter)
+  void drawTrip(lv_layer_t* layer, int32_t ox, int32_t oy, float x, const Curve& c) {
+    const uint32_t col = refColor(c.tripV, c.ref);
+    const float y = oy + sy(c.tripV);
+    drawLine(layer, x, y + TRIP_R, x, oy + CY0 + CH, theme::MUTED, 1, LV_OPA_COVER, 2, 2);
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.radius = LV_RADIUS_CIRCLE;
+    d.bg_color = theme::c(theme::BG);
+    d.bg_opa = LV_OPA_COVER;
+    d.border_color = theme::c(col);
+    d.border_width = 2;
+    d.border_opa = LV_OPA_COVER;
+    lv_area_t da;
+    da.x1 = static_cast<int32_t>(std::lround(x)) - TRIP_R;
+    da.y1 = static_cast<int32_t>(std::lround(y)) - TRIP_R;
+    da.x2 = da.x1 + 2 * TRIP_R;
+    da.y2 = da.y1 + 2 * TRIP_R;
+    lv_draw_rect(layer, &d, &da);
+    drawText(layer, "Fahrt", static_cast<int32_t>(x) - 30, oy + CY0 + CH + 3, 60, LV_TEXT_ALIGN_CENTER, col);
+    char n[16], t[20];
+    fmt::number(n, sizeof(n), c.tripV, 1);
+    snprintf(t, sizeof(t), "%s%s", n, c.tripV > cfg::ECO_CURVE_TOP_L100 ? "\xE2\x86\x91" : "");
+    const bool right = x < ox + sx(3.5f);  // rechts daneben, außer kurz vor "Momentan"
+    const int32_t yt = static_cast<int32_t>(y) - 7;
+    if (right)
+      drawText(layer, t, static_cast<int32_t>(x) + TRIP_R + 3, yt, 40, LV_TEXT_ALIGN_LEFT, col);
+    else
+      drawText(layer, t, static_cast<int32_t>(x) - TRIP_R - 43, yt, 40, LV_TEXT_ALIGN_RIGHT, col);
   }
 
   lv_obj_t* chart_ = nullptr;

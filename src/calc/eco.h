@@ -176,4 +176,10 @@ class TipEngine {
   bool steadyNow_ = false;
 };
 
+// Fahrt-Punkt in der Eco-Kurve (Jos Wunsch): Lage auf der Strecken-Achse Tank · 100 km · 10 km · 1 km
+// als Bruchteil des Punkt-Index (0 = Tank, 1 = 100 km, 2 = 10 km, 3 = 1 km). Zwischen 1 und 100 km
+// logarithmisch wie die Stützstellen; über 100 km zwischen 100 km und Tank nach den km seit dem Tanken
+// (höchstens auf Tank). Unter 1 km auf "1 km". NAN = kein Punkt (unter TRIP_AVG_MIN_KM oder unbekannt).
+float tripAxisPos(float tripKm, float fillKm);
+
 }  // namespace eco

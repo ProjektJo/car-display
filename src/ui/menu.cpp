@@ -192,7 +192,10 @@ void onBrightStep(lv_event_t* e) {
     const int v = u.brightDay + code * cfg::BRIGHT_DAY_STEP;
     u.brightDay = static_cast<uint8_t>(v < cfg::BRIGHT_DAY_MIN ? cfg::BRIGHT_DAY_MIN : (v > cfg::BRIGHT_DAY_MAX ? cfg::BRIGHT_DAY_MAX : v));
   } else {
-    const int v = u.brightNight + (code / 2) * cfg::BRIGHT_NIGHT_STEP;
+    // ab 5 % abwärts in 1er Schritten, darüber in 5er Schritten
+    const int dir = code / 2;
+    const bool fine = dir < 0 ? u.brightNight <= cfg::BRIGHT_NIGHT_FINE_BELOW : u.brightNight < cfg::BRIGHT_NIGHT_FINE_BELOW;
+    const int v = u.brightNight + dir * (fine ? 1 : cfg::BRIGHT_NIGHT_STEP);
     u.brightNight =
         static_cast<uint8_t>(v < cfg::BRIGHT_NIGHT_MIN ? cfg::BRIGHT_NIGHT_MIN : (v > cfg::BRIGHT_NIGHT_MAX ? cfg::BRIGHT_NIGHT_MAX : v));
   }

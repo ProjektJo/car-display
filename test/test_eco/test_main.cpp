@@ -1,6 +1,7 @@
 // Eco-Logik (A6, A9, A10): Prüfwerte aus dem Master-Prompt (Tabelle Unit-Tests)
 #include "calc/eco.h"
 
+#include <cmath>
 #include <unity.h>
 
 void setUp() {}
@@ -216,6 +217,19 @@ void test_tip_cold() {
 }
 
 // Sperrzeiten: nach einem Tipp 60 s kein anderer, derselbe frühestens nach 5 min; nicht in Ruhezeiten
+// Fahrt-Punkt: Lage auf der Achse Tank(0) · 100 km(1) · 10 km(2) · 1 km(3)
+void test_trip_axis_pos() {
+  TEST_ASSERT_TRUE(std::isnan(eco::tripAxisPos(0.3f, 500)));   // unter 0,5 km kein Punkt
+  TEST_ASSERT_TRUE(std::isnan(eco::tripAxisPos(NAN, 500)));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 3.0f, eco::tripAxisPos(0.7f, 500));  // bis 1 km auf "1 km"
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.0f, eco::tripAxisPos(10, 500));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 3.0f - std::log10(37.0f), eco::tripAxisPos(37, 500));  // 37 km: 10..100
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, eco::tripAxisPos(100, 500));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, eco::tripAxisPos(std::sqrt(100.0f * 400.0f), 400));  // log-Mitte 100..Tank
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, eco::tripAxisPos(450, 400));  // höchstens auf Tank
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, eco::tripAxisPos(150, NAN));  // Tank-km unbekannt
+}
+
 void test_tip_gaps() {
   eco::TipEngine e;
   eco::TipInput in = driving(1000);
@@ -259,6 +273,7 @@ int main() {
   RUN_TEST(test_tip_idle);
   RUN_TEST(test_tip_cold);
   RUN_TEST(test_tip_gaps);
+  RUN_TEST(test_trip_axis_pos);
   return UNITY_END();
 }
 

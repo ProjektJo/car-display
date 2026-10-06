@@ -17,7 +17,7 @@ Stand 3. Oktober 2026 (nach der Gesamtprüfung), Schritt 2 des Meilensteins. Gru
 | 2 | Werte | Nur Standard-OBD2 (Mode 01/03/04/07/09), keine Hersteller-PIDs |
 | 3 | Adapter | Vgate vLinker MC+ BT 4.0 (BLE). Hinweis: Nur die Version mit "iOS" bzw. "BT4.0/BLE" funktioniert, die Bluetooth-Classic-Version kann der ESP32-S3 nicht |
 | 4 | Strom | USB im Auto, aus mit der Zündung → Firmware speichert laufend (siehe 8) |
-| 5 | Helligkeit | Menü → Helligkeit: Modus Tag / Nacht / Auto (GPS) und je eine Helligkeit für Tag (10–100 %, 10er Schritte, Standard 80) und Nacht (5–60 %, 5er Schritte, Standard 25). Ohne Uhr kein Auto ohne GPS |
+| 5 | Helligkeit | Menü → Helligkeit: Modus Tag / Nacht / Auto (GPS) und je eine Helligkeit für Tag (10–100 %, 10er Schritte, Standard 80) und Nacht (1–60 %, unter 5 % 1er, sonst 5er Schritte, Standard 25). Ohne Uhr kein Auto ohne GPS |
 | 6 | Ausrichtung | Querformat 320x240 |
 | 7 | Hauptwerte | Tempo, Drehzahl, Momentanverbrauch, Durchschnittsverbrauch (mehrere Zeitfenster), Gaspedal, Restreichweite. Eigener Eco-/Hypermiling-Modus |
 | 8 | Seiten | Eco (Startseite, enthält die Verbrauchskurve) · Sport · Sprint · Übersicht · Großanzeige · Fahrt & Tank · Diagramme · G-Kraft (nur mit MPU6050) · Historie · Fehlercodes · Info |

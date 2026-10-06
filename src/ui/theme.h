@@ -17,7 +17,7 @@ extern lv_font_t font_small;
 namespace theme {
 
 // Farbtokens (M, Tabelle Farbtokens)
-constexpr uint32_t BG = 0x0E1114;
+constexpr uint32_t BG = 0x07090B;  // 6.10.2026 dunkler für mehr Kontrast (Jos Wunsch, vorher 0x0E1114)
 constexpr uint32_t SURFACE = 0x171B20;
 constexpr uint32_t LINE = 0x262C33;
 constexpr uint32_t TEXT = 0xE8EAED;
@@ -27,7 +27,7 @@ constexpr uint32_t ACCENT = 0x7FA7C4;
 constexpr uint32_t GOOD = 0x5FB98B;
 constexpr uint32_t WARN = 0xD6A24A;
 constexpr uint32_t BAD = 0xD46A5E;
-constexpr uint32_t OVERLAY_DIM = 0x080A0C;  // Hintergrund hinter Fenstern (Vorschau: rgba(8,10,12,.82))
+constexpr uint32_t OVERLAY_DIM = 0x030405;  // Hintergrund hinter Fenstern (Vorschau: rgba(8,10,12,.82))
 constexpr lv_opa_t OVERLAY_DIM_OPA = 209;   // 0,82 · 255
 
 inline lv_color_t c(uint32_t hex) { return lv_color_hex(hex); }

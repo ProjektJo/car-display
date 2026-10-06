@@ -8,7 +8,7 @@ Stand 3. Oktober 2026 nach der Gesamtprüfung (mit Zusatzfunktionen, siehe `zusa
 
 | Token | Farbe | Verwendung |
 |---|---|---|
-| `bg` | `#0E1114` | Hintergrund |
+| `bg` | `#07090B` | Hintergrund (6.10.2026 dunkler für mehr Kontrast, vorher `#0E1114`) |
 | `surface` | `#171B20` | Kacheln, Dialoge |
 | `line` | `#262C33` | Trennlinien, Diagrammraster |
 | `text` | `#E8EAED` | Werte |

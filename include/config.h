@@ -419,10 +419,11 @@ constexpr uint8_t BRIGHT_DAY_DEFAULT = 80;        // Tag 10–100 %, 10er Schrit
 constexpr uint8_t BRIGHT_DAY_MIN = 10;
 constexpr uint8_t BRIGHT_DAY_MAX = 100;
 constexpr uint8_t BRIGHT_DAY_STEP = 10;
-constexpr uint8_t BRIGHT_NIGHT_DEFAULT = 25;      // Nacht 5–60 %, 5er Schritte, Standard 25 (A2 Nr. 5)
-constexpr uint8_t BRIGHT_NIGHT_MIN = 5;
+constexpr uint8_t BRIGHT_NIGHT_DEFAULT = 25;      // Nacht 1–60 %, 5er Schritte, Standard 25 (A2 Nr. 5)
+constexpr uint8_t BRIGHT_NIGHT_MIN = 1;           // unter BRIGHT_NIGHT_FINE_BELOW in 1er Schritten (Jos Wunsch)
 constexpr uint8_t BRIGHT_NIGHT_MAX = 60;
 constexpr uint8_t BRIGHT_NIGHT_STEP = 5;
+constexpr uint8_t BRIGHT_NIGHT_FINE_BELOW = 5;    // 1, 2, 3, 4, 5, 10, 15 … (PWM 10 Bit: 1 % = Tastgrad 10/1023)
 
 // ---------------------------------------------------------------------------
 // Bedienung (U Bedienung; Gesten-Schwellen aus der Vorschau)

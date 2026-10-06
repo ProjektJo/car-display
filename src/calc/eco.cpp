@@ -351,4 +351,13 @@ Tip TipEngine::update(const TipInput& in) {
   return active_;
 }
 
+float tripAxisPos(float tripKm, float fillKm) {
+  if (std::isnan(tripKm) || tripKm < cfg::TRIP_AVG_MIN_KM) return NAN;
+  if (tripKm <= 1.0f) return 3.0f;
+  if (tripKm <= 100.0f) return 3.0f - std::log10(tripKm);
+  if (std::isnan(fillKm) || fillKm <= 100.0f) return 1.0f;  // Tank-km unbekannt: auf 100 km
+  if (tripKm >= fillKm) return 0.0f;
+  return 1.0f - (std::log10(tripKm) - 2.0f) / (std::log10(fillKm) - 2.0f);
+}
+
 }  // namespace eco
