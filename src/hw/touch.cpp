@@ -20,6 +20,7 @@ constexpr uint32_t RESET_BOOT_MS = 300;   // Controller braucht nach dem Reset e
 SwipeDetector swipe(cfg::TAP_SLOP_PX, cfg::SWIPE_MIN_DX_PX, cfg::SWIPE_DOWN_MIN_DY_PX, cfg::SWIPE_DOWN_START_MAX_Y_PX);
 Swipe pending = Swipe::None;
 bool swipeEnabled = true;
+bool flipped = false;
 bool clickSuppressed = false;
 uint32_t lastTouch = 0;
 bool wasPressed = false;
@@ -55,6 +56,10 @@ void mapPoint(uint16_t rx, uint16_t ry, int16_t& x, int16_t& y) {
   // Kalibrierung aus dem Board-Header (gemessener Versatz und Skalierung je Achse)
   a = static_cast<int32_t>(lroundf(a * BOARD_TOUCH_SCALE_X + BOARD_TOUCH_OFFSET_X));
   b = static_cast<int32_t>(lroundf(b * BOARD_TOUCH_SCALE_Y + BOARD_TOUCH_OFFSET_Y));
+  if (flipped) {  // Bild um 180° gedreht
+    a = BOARD_LCD_HOR_RES - 1 - a;
+    b = BOARD_LCD_VER_RES - 1 - b;
+  }
   x = static_cast<int16_t>(constrain(a, 0, BOARD_LCD_HOR_RES - 1));
   y = static_cast<int16_t>(constrain(b, 0, BOARD_LCD_VER_RES - 1));
 }
@@ -99,6 +104,8 @@ lv_indev_t* init() {
   lv_indev_set_long_press_time(indev, cfg::LONG_PRESS_MS);
   return indev;
 }
+
+void setFlipped(bool f) { flipped = f; }
 
 Swipe takeSwipe() {
   const Swipe s = pending;

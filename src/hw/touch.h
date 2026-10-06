@@ -17,6 +17,9 @@ Swipe takeSwipe();
 // Wischgesten an/aus. Aus, solange ein Fenster offen ist (dort darf z. B. eine Liste scrollen).
 void setSwipeEnabled(bool on);
 
+// Touch um 180° drehen, passend zum Bild (Einbaulage)
+void setFlipped(bool flipped);
+
 // Zeitpunkt der letzten Berührung (millis), für das Schließen von Fenstern nach 60 s
 uint32_t lastTouchMs();
 

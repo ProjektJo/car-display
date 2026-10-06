@@ -8,6 +8,8 @@
 #include "core/commands.h"
 #include "sensors/sensor_task.h"
 #include "storage/storage_task.h"
+#include "hw/display.h"
+#include "hw/touch.h"
 #include "ui/numpad.h"
 #include "ui/overlay.h"
 #include "ui/symbols.h"
@@ -198,6 +200,15 @@ void onBrightStep(lv_event_t* e) {
   ui::applyBrightness();
 }
 
+void onFlip(lv_event_t*) {
+  UiSettings& u = uiprefs::get();
+  u.flip180 = !u.flip180;
+  uiprefs::save();
+  display::setFlipped(u.flip180);
+  touch::setFlipped(u.flip180);
+  openBrightness();
+}
+
 void stepRow(lv_obj_t* card, const char* key, int idx, int code) {
   lv_obj_t* r = flexRow(card, 8);
   lv_obj_t* k = theme::label(r, &font_m14, false, key);
@@ -218,6 +229,15 @@ void openBrightness() {
   chip(chips, "Auto (GPS)", u.dayNight == 2, snap.hasGps, onBrightMode, 2);  // ohne Uhr kein Auto (A2 Nr. 5)
   stepRow(card, "Tag", 0, 1);
   stepRow(card, "Nacht", 1, 2);
+  // Einbaulage: Bild und Touch um 180° drehen, bleibt gespeichert
+  {
+    lv_obj_t* v = nullptr;
+    lv_obj_t* r = row(card, "Bild um 180° drehen", &v, LV_PCT(100));
+    pressable(r);
+    lv_obj_add_event_cb(r, onFlip, LV_EVENT_CLICKED, nullptr);
+    lv_label_set_text(v, u.flip180 ? "an" : "aus");
+    lv_obj_set_style_text_color(v, theme::c(theme::ACCENT), 0);
+  }
   lv_obj_t* note = theme::label(card, &font_small, true,
                                 snap.hasGps ? "Auto wechselt mit dem Sonnenstand am aktuellen Ort."
                                             : "Auto (Sonnenstand) gibt es nur mit GPS-Modul.");

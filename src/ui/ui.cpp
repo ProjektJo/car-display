@@ -283,6 +283,9 @@ void task(void*) {
   lv_tick_set_cb(tickCb);
   lv_log_register_print_cb(logCb);
 
+  uiprefs::load();
+  display::setFlipped(uiprefs::get().flip180);  // Einbaulage: gilt schon für die Startzeile
+  touch::setFlipped(uiprefs::get().flip180);
   lv_display_t* disp = display::init();  // schaltet das Licht schon mit einer Startzeile ein
   if (!disp) {
     for (;;) vTaskDelay(pdMS_TO_TICKS(1000));  // ohne Zeichenpuffer geht nichts
@@ -292,7 +295,6 @@ void task(void*) {
   touch::init();
 
   Serial.println("Start: Oberfläche aufbauen");
-  uiprefs::load();
   history::init();
   live::init();
   carstate::snapshot(snap);

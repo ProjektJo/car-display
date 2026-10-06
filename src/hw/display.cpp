@@ -12,6 +12,8 @@ namespace {
 TFT_eSPI tft;
 bool dmaActive = false;
 bool pwmOk = false;
+bool flippedNow = false;
+uint8_t rotation() { return static_cast<uint8_t>((BOARD_LCD_ROTATION + (flippedNow ? 2 : 0)) % 4); }
 
 void flushCb(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
   const uint32_t w = lv_area_get_width(area);
@@ -46,7 +48,7 @@ lv_display_t* init() {
 
   Serial.println("Start: Display-Controller wird eingerichtet");
   tft.init();
-  tft.setRotation(BOARD_LCD_ROTATION);
+  tft.setRotation(rotation());
   tft.setSwapBytes(true);  // LVGL rechnet RGB565 little-endian, das Display erwartet big-endian
   tft.fillScreen(TFT_BLACK);
 
@@ -80,6 +82,16 @@ lv_display_t* init() {
   lv_display_set_flush_cb(disp, flushCb);
   lv_display_set_buffers(disp, buf1, buf2, bufBytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
   return disp;
+}
+
+void setFlipped(bool flipped) {
+  if (flipped == flippedNow) return;
+  flippedNow = flipped;
+  if (!lv_display_get_default()) return;  // vor init(): gilt ab dem Start
+  if (dmaActive) tft.dmaWait();
+  tft.setRotation(rotation());
+  lv_obj_invalidate(lv_screen_active());
+  lv_obj_invalidate(lv_layer_top());
 }
 
 void setBrightness(uint8_t percent) {

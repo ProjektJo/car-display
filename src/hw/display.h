@@ -12,4 +12,7 @@ lv_display_t* init();
 // Helligkeit 0–100 %
 void setBrightness(uint8_t percent);
 
+// Bild um 180° drehen (Einbaulage); zeichnet danach alles neu. Vor init() aufgerufen, gilt es ab dem Start.
+void setFlipped(bool flipped);
+
 }  // namespace display

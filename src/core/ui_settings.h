@@ -18,6 +18,6 @@ struct UiSettings {
   uint8_t brightDay = 80;               // 10–100 %, 10er Schritte (A2 Nr. 5)
   uint8_t brightNight = 25;             // 5–60 %, 5er Schritte
   uint8_t goalMode = 0;                 // Spar-Ziel: 0 aus, 1 auto, 2 fest (Z 13)
-  uint8_t reserved = 0;
+  uint8_t flip180 = 0;                  // Bild und Touch um 180° gedreht (Einbaulage im Auto)
   float goalFix = 5.5f;                 // festes Ziel 3,0–7,0
 };
