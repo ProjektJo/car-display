@@ -190,6 +190,8 @@ void openTouchTest() {
   lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(card, touchTestPressed, LV_EVENT_PRESSED, nullptr);
   touchTest = card;
+  touch::setTestMode(true);
+  overlay::setOnClose([] { touch::setTestMode(false); });
   static const int16_t PTS[5][2] = {{20, 20}, {299, 20}, {160, 120}, {20, 219}, {299, 219}};
   for (auto& pt : PTS) {
     for (int k = 0; k < 2; k++) {

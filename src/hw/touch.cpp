@@ -21,6 +21,7 @@ SwipeDetector swipe(cfg::TAP_SLOP_PX, cfg::SWIPE_MIN_DX_PX, cfg::SWIPE_DOWN_MIN_
 Swipe pending = Swipe::None;
 bool swipeEnabled = true;
 bool flipped = false;
+bool testMode = false;
 bool clickSuppressed = false;
 uint32_t lastTouch = 0;
 bool wasPressed = false;
@@ -61,9 +62,8 @@ void mapPoint(uint16_t rx, uint16_t ry, int16_t& x, int16_t& y) {
     // symmetrisch ist (gemessen in dieser Lage, schließt den Fingerausgleich schon ein)
     a = BOARD_LCD_HOR_RES - 1 - a;
     b = static_cast<int32_t>(lroundf(rx * BOARD_TOUCH_FLIP_SCALE_Y + BOARD_TOUCH_FLIP_OFFSET_Y));
-  } else {
-    b -= cfg::TOUCH_FINGER_OFFSET_Y_PX;  // Fingerausgleich (Bildschirmrichtung)
   }
+  if (!testMode) b -= cfg::TOUCH_FINGER_OFFSET_Y_PX;  // Fingerausgleich, nach der Drehung (Bildschirmrichtung)
   x = static_cast<int16_t>(constrain(a, 0, BOARD_LCD_HOR_RES - 1));
   y = static_cast<int16_t>(constrain(b, 0, BOARD_LCD_VER_RES - 1));
 }
@@ -110,6 +110,7 @@ lv_indev_t* init() {
 }
 
 void setFlipped(bool f) { flipped = f; }
+void setTestMode(bool on) { testMode = on; }
 
 Swipe takeSwipe() {
   const Swipe s = pending;

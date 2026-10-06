@@ -19,6 +19,8 @@ void setSwipeEnabled(bool on);
 
 // Touch um 180° drehen, passend zum Bild (Einbaulage)
 void setFlipped(bool flipped);
+// Touch-Test: ohne Fingerausgleich (reine Geometrie)
+void setTestMode(bool on);
 
 // Zeitpunkt der letzten Berührung (millis), für das Schließen von Fenstern nach 60 s
 uint32_t lastTouchMs();

@@ -72,7 +72,7 @@
 #define BOARD_TOUCH_SCALE_X  1.0f
 #define BOARD_TOUCH_OFFSET_X 0.0f
 #define BOARD_TOUCH_SCALE_Y  1.150f
-#define BOARD_TOUCH_OFFSET_Y (-23.7f)
+#define BOARD_TOUCH_OFFSET_Y (-30.7f)  /* inkl. 7 px aus dem zweiten Kreuz-Test, Zielen auf die Mitte trifft sie */
 /* Lage "um 180° gedreht" (Menü → Helligkeit): y direkt aus dem Rohwert x des Sensors,              */
 /* Bildschirm-y = roh_x · SCALE + OFFSET. Gemessen am 6.10.2026 (Kreuz-Test in gedrehter Lage).     */
 #define BOARD_TOUCH_FLIP_SCALE_Y  1.084f
