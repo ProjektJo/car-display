@@ -50,6 +50,25 @@ void onNotify(NimBLERemoteCharacteristic* ch, uint8_t* data, size_t len, bool) {
   portEXIT_CRITICAL(&rxMux);
 }
 
+// Benachrichtigung einschalten: CCCD (0x2902) mit Bestätigung schreiben. NimBLE meldet sonst auch dann
+// Erfolg, wenn es den CCCD nicht gefunden hat; manche Adapter (IOS-Vlink) brauchen die Bestätigung.
+bool enableNotify(NimBLERemoteCharacteristic* ch, bool notifications) {
+  NimBLERemoteDescriptor* cccd = ch->getDescriptor(NimBLEUUID((uint16_t)0x2902));
+  if (!cccd) {
+    ch->getDescriptors(true);  // Deskriptoren neu abfragen
+    cccd = ch->getDescriptor(NimBLEUUID((uint16_t)0x2902));
+  }
+  if (!cccd) {
+    Serial.printf("BLE:   %s hat keinen CCCD\n", ch->getUUID().toString().c_str());
+    return false;
+  }
+  const bool ok = ch->subscribe(notifications, onNotify, true);
+  const std::string v = cccd->readValue();
+  Serial.printf("BLE:   %s %s: %s, CCCD = %02X %02X\n", ch->getUUID().toString().c_str(), notifications ? "Notify" : "Indicate",
+                ok ? "an" : "FEHLER", v.size() > 0 ? (uint8_t)v[0] : 0xFF, v.size() > 1 ? (uint8_t)v[1] : 0xFF);
+  return ok;
+}
+
 bool isStandardService(const NimBLEUUID& u) {
   // Generic Access/Attribute, Device Information, Battery
   return u == NimBLEUUID((uint16_t)0x1800) || u == NimBLEUUID((uint16_t)0x1801) ||
@@ -125,7 +144,7 @@ void sendRaw(NimBLERemoteCharacteristic* tx, const char* text, bool withResponse
 bool tryCandidate(const Candidate& c) {
   Serial.printf("BLE: probiere %s -> %s, %s, %s\n", c.rx->getUUID().toString().c_str(), c.tx->getUUID().toString().c_str(),
                 c.withResponse ? "Schreiben mit Antwort" : "Schreiben ohne Antwort", c.indicate ? "Indicate" : "Notify");
-  if (!c.rx->subscribe(!c.indicate, onNotify)) {
+  if (!enableNotify(c.rx, !c.indicate)) {
     Serial.println("BLE:   Benachrichtigung lässt sich nicht einschalten");
     return false;
   }
@@ -167,7 +186,7 @@ bool findUartCross(const std::string& addr) {
     if (isStandardService(svc->getUUID())) continue;
     for (auto* ch : *svc->getCharacteristics(false)) {
       if (ch->canNotify() || ch->canIndicate()) {
-        if (ch->subscribe(ch->canNotify(), onNotify)) rxs.push_back(ch);
+        if (enableNotify(ch, ch->canNotify())) rxs.push_back(ch);
         else Serial.printf("BLE:   %s lässt sich nicht abonnieren\n", ch->getUUID().toString().c_str());
       }
       if (ch->canWrite() || ch->canWriteNoResponse()) txs.push_back(ch);
