@@ -1,7 +1,8 @@
 // Bluetooth-LE-Verbindung zum OBD-Adapter (A12 obd/ble_link). Übernommen aus der getesteten
 // alten Firmware (ble_serial.cpp): NimBLE, Suche nach Name bzw. MAC, automatische Suche des
-// UART-Dienstes mit einem Schreib- und einem Benachrichtigungs-Merkmal
-// (z. B. FFF0/FFF1/FFF2 bei vLinker/Vgate, FFE0/FFE1 bei vielen Klonen).
+// UART-Kanals: Die Firmware probiert die Paare aus Benachrichtigungs- und Schreib-Merkmal (bekannte Adapter
+// zuerst: 18F0/2AF0/2AF1, FFF0/FFF1/FFF2, FFE0/FFE1, OBDLink) mit beiden Schreibarten durch, bis der
+// Adapter auf ATZ antwortet, und merkt sich den Kanal je Adapter in NVS.
 // Nur aus obdTask benutzen.
 #pragma once
 #include <cstddef>
@@ -30,5 +31,8 @@ int read();
 
 // Verwirft alles Empfangene
 void clearRx();
+
+// Gewählter Kanal für die Diagnose, z. B. "0x2af0/0x2af1, ohne Antwort"; leer ohne Verbindung
+const char* channelInfo();
 
 }  // namespace ble

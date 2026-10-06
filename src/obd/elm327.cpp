@@ -43,10 +43,26 @@ Result command(const char* cmd, char* out, size_t size, uint32_t timeoutMs) {
   }
 }
 
+// Für die Fehlersuche: Antwort lesbar ausgeben (\r als |)
+void logReply(const char* cmd, Result r, const char* reply) {
+  char shown[72];
+  size_t n = 0;
+  for (const char* p = reply; *p && n + 1 < sizeof(shown); p++) shown[n++] = (*p == '\r' || *p == '\n') ? '|' : *p;
+  shown[n] = '\0';
+  Serial.printf("ELM: %s -> %s \"%s\"\n", cmd, r == Result::Ok ? "ok" : (r == Result::Timeout ? "keine Antwort" : "Verbindung weg"), shown);
+}
+
 bool init(char* version, size_t size) {
   char reply[64];
-  // ATZ setzt den Adapter zurück; die Antwort ist die Versionskennung
-  if (command("ATZ", reply, sizeof(reply), cfg::ELM_RESET_TIMEOUT_MS) != Result::Ok) return false;
+  // ATZ setzt den Adapter zurück; die Antwort ist die Versionskennung. Manche Adapter brauchen nach dem
+  // Verbinden einen Moment, deshalb ein zweiter Versuch.
+  Result r = Result::Timeout;
+  for (int attempt = 0; attempt < 2 && r != Result::Ok; attempt++) {
+    r = command("ATZ", reply, sizeof(reply), cfg::ELM_RESET_TIMEOUT_MS);
+    if (r != Result::Ok) logReply("ATZ", r, reply);
+    if (r == Result::Lost) return false;
+  }
+  if (r != Result::Ok) return false;
   // Echo kann noch an sein: "ATZ" vor der Kennung abschneiden
   const char* v = strstr(reply, "ELM");
   if (!v) v = strstr(reply, "elm");
@@ -55,7 +71,11 @@ bool init(char* version, size_t size) {
     if (*p == '\r' || *p == '\n') *p = ' ';
 
   for (const char* cmd : {"ATE0", "ATL0", "ATS0", "ATH0", "ATSP0", "ATAT2"}) {
-    if (command(cmd, reply, sizeof(reply), cfg::ELM_AT_TIMEOUT_MS) != Result::Ok) return false;
+    const Result rc = command(cmd, reply, sizeof(reply), cfg::ELM_AT_TIMEOUT_MS);
+    if (rc != Result::Ok) {
+      logReply(cmd, rc, reply);
+      return false;
+    }
     // ANNAHME: Kennt ein Klon ATAT2 nicht ("?"), geht es ohne adaptives Timing weiter.
     if (elmp::classify(reply) == elmp::Reply::Error && strcmp(cmd, "ATAT2") != 0) {
       Serial.printf("ELM: %s abgelehnt (%s)\n", cmd, reply);

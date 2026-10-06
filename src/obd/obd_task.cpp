@@ -342,6 +342,7 @@ void task(void*) {
         continue;
       }
       Serial.printf("BLE: verbunden mit %s\n", name);
+      carstate::modify([](CarState& s) { snprintf(s.link.channel, sizeof(s.link.channel), "%s", ble::channelInfo()); });
     }
 
     // 2. Adapter einstellen

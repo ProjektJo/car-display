@@ -72,6 +72,9 @@ constexpr const char* BLE_DEVICE_NAME = "Car-Display";  // so meldet sich das Di
 constexpr uint32_t BLE_SCAN_S = 5;                // Suche dauert 5 s (wie alte Firmware)
 constexpr uint32_t BLE_CONNECT_TIMEOUT_S = 10;    // Verbindungsaufbau höchstens 10 s
 constexpr uint32_t BLE_CHUNK_BYTES = 20;          // kleinste BLE-Nutzlast; längere Befehle in Stücken
+// Kanal durchprobieren: nach dem Einschalten der Benachrichtigung kurz warten, dann ATZ mit Zeitlimit
+constexpr uint32_t BLE_PROBE_SETTLE_MS = 200;
+constexpr uint32_t BLE_PROBE_TIMEOUT_MS = 2500;
 
 // Neuer Versuch nach einem Fehler mit wachsender Pause 1, 2, 5, 10 s, danach immer 10 s (A7)
 constexpr uint32_t RETRY_DELAYS_S[] = {1, 2, 5, 10};

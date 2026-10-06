@@ -629,6 +629,10 @@ void update(const CarSnapshot& s) {
     snprintf(text, sizeof(text), "%s (BLE)", li.adapter);
   else
     snprintf(text, sizeof(text), "%s", s.link.state == LinkState::Searching ? "Suche …" : fmt::NO_VALUE);
+  if (li.channel[0]) {  // Letzte Verbindung: gewählter BLE-Kanal
+    const size_t n = strlen(text);
+    snprintf(text + n, sizeof(text) - n, ", %s", li.channel);
+  }
   setText(diagValues[ROW_ADAPTER], diagShown[ROW_ADAPTER], sizeof(diagShown[0]), text);
   setText(diagValues[ROW_PROTOCOL], diagShown[ROW_PROTOCOL], sizeof(diagShown[0]), li.protocol[0] ? li.protocol : fmt::NO_VALUE);
   setText(diagValues[ROW_VIN], diagShown[ROW_VIN], sizeof(diagShown[0]), linktext::vin(li));

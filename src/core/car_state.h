@@ -63,6 +63,7 @@ struct LinkInfo {
   uint8_t retryInS = 0;        // Sekunden bis zum nächsten Versuch (bei Waiting)
   bool everRunning = false;    // seit dem Einschalten schon einmal Daten bekommen
   char adapter[24] = "";       // BLE-Name des Adapters
+  char channel[48] = "";       // gewählter BLE-Kanal (Diagnose "Letzte Verbindung")
   char protocol[28] = "";      // z. B. "ISO 14230-4 KWP"
   int8_t protocolId = -1;      // ELM-Protokollnummer (ATDPN), -1 = unbekannt
   bool isCan = false;
