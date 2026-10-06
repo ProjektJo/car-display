@@ -9,6 +9,15 @@ enum class CmdType : uint8_t {
   EndTrip,      // an calcTask: Fahrt beenden (Menü, Etappe 7)
   GearCheckYes, // an calcTask: "Fährst du mit Fahrzeug …?" mit Ja beantwortet: Gänge neu lernen
   GearCheckNo,  // an calcTask: Frage ohne Ja geschlossen bzw. Fahrzeug geändert
+  ReadDtc,      // an obdTask: Fehlercodes lesen (Mode 03 und 07)
+  ClearDtc,     // an obdTask: Fehlercodes löschen (Mode 04), nur bei stehendem Motor
+  SetGoal,      // an calcTask: Spar-Ziel, i = 0 aus / 1 auto / 2 fest, f = fester Wert
+  SetBody,      // an calcTask: Fahrzeugart, i = Index in cfg::BODY_TYPES
+  SetColdRpm,   // an calcTask: Kalt-Grenze, i = U/min
+  SetOdo,       // an calcTask: Tachostand eintragen, f = km
+  MaintDone,    // an calcTask: Wartung erledigt, i = 0 Öl / 1 Inspektion
+  SetInterval,  // an calcTask: Wartungsintervall, i = 0 Öl / 1 Inspektion, f = km
+  ResetAvg,     // an calcTask: Mittelwerte zurücksetzen, i = Bitmaske (1 km, 10 km, 100 km, Tank)
   // Weitere Befehle folgen mit den Etappen (Fehlercodes lesen/löschen ...)
 };
 

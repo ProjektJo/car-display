@@ -79,7 +79,7 @@ lv_obj_t* addDoneButton(lv_obj_t* card, lv_event_cb_t onClick) {
   lv_obj_remove_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_size(btn, DONE_W, DONE_H);
   // Ausrichtung bezieht sich auf den Innenbereich der Karte, deshalb Innenabstand herausrechnen
-  lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, PAD_HOR - DONE_RIGHT, DONE_TOP - PAD_VER);
+  lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, lv_obj_get_style_pad_right(card, 0) - DONE_RIGHT, DONE_TOP - PAD_VER);
   lv_obj_set_style_bg_color(btn, theme::c(theme::SURFACE), 0);
   lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(btn, theme::c(theme::LINE), LV_STATE_PRESSED);

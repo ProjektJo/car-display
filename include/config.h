@@ -19,7 +19,7 @@ namespace cfg {
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
-constexpr const char* FW_VERSION = "2.0.3-etappe6";
+constexpr const char* FW_VERSION = "2.0.4-etappe7";
 
 // ---------------------------------------------------------------------------
 // Aufgaben und Takt (A5)
@@ -330,6 +330,34 @@ constexpr uint16_t LIVE_ENTRIES = 240;            // 30 s × 8 Abfragen/s
 constexpr float RPM_GAUGE_MAX = 6500.0f;          // Drehzahlbogen 0–6500 U/min (A10)
 constexpr float RPM_GAUGE_WARN = 5800.0f;         // ab 5800 warn
 constexpr float KW_TO_PS = 1.36f;
+
+// Spar-Ziel (Z 13, A9): aus / auto / fest. Auto = Ø der letzten 5 Tankfüllungen (ersatzweise Gesamt)
+// minus 0,5 l, wenn dieser über 5 l liegt, sonst minus 0,3 l; mindestens 3,0. Fest 3,0–7,0 in 0,1-Schritten.
+constexpr float GOAL_AUTO_MINUS_HIGH = 0.5f;
+constexpr float GOAL_AUTO_MINUS_LOW = 0.3f;
+constexpr float GOAL_AUTO_THRESHOLD = 5.0f;
+constexpr float GOAL_MIN = 3.0f;
+constexpr float GOAL_FIX_MIN = 3.0f, GOAL_FIX_MAX = 7.0f, GOAL_FIX_STEP = 0.1f;
+constexpr float GOAL_FIX_DEFAULT = 5.5f;
+
+// Wartung (Z 9): Ölwechsel und Inspektion nach km; Hinweis in der Start-Karte unter 500 km
+// ANNAHME: Standard-Intervalle Öl 15.000 km (Z 9), Inspektion 30.000 km
+constexpr float OIL_INTERVAL_DEFAULT_KM = 15000.0f;
+constexpr float INSP_INTERVAL_DEFAULT_KM = 30000.0f;
+constexpr float MAINT_WARN_KM = 500.0f;
+
+// Spartempo (Z 1): 11 Klassen 30–130 km/h; zählt nur im höchsten Gang, Tempo ± 3 km/h über 20 s und
+// ruhigem Gaspedal (ohne MPU6050). Eine Klasse gilt ab 5 km.
+constexpr int TEMPO_CLASSES = 11;
+constexpr float TEMPO_FIRST_KMH = 30.0f, TEMPO_STEP_KMH = 10.0f;
+constexpr float TEMPO_BAND_KMH = 3.0f;
+constexpr uint32_t TEMPO_STEADY_MS = 20000;
+// ANNAHME: "ruhiges Gaspedal" = Pedal bleibt in ± 5 Prozentpunkten
+constexpr float TEMPO_PEDAL_BAND_PCT = 5.0f;
+constexpr float TEMPO_MIN_KM = 5.0f;
+// Tempo-Tipp (A9): > 115 km/h seit > 30 s, Ersparnis aus den Klassen 100 und 120
+constexpr float TIP_TEMPO_KMH = 115.0f;
+constexpr uint32_t TIP_TEMPO_HOLD_MS = 30000;
 
 // Start-Karte (U Start-Karte, Z 12): aus der letzten Fahrt, wenn ≥ 1 km; 6 s, Tippen oder > 5 km/h schließt
 constexpr float START_CARD_MIN_KM = 1.0f;

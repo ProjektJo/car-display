@@ -10,11 +10,13 @@
 #include "calc/eco.h"
 #include "calc/perf.h"
 #include "calc/trip.h"
+#include "config.h"
 
 constexpr uint32_t PERSIST_MAGIC = 0x33534443;  // "CDS3"
 // Version 2 (Etappe 4): Gang-Histogramm, Leerlaufverbrauch, letzte Fahrt, Eco-Summen der Fahrt
 // Version 3 (Etappe 6): beste Sprintzeiten und -kurve, Vmax und Spitzenleistung der Fahrt
-constexpr uint16_t PERSIST_VERSION = 3;
+// Version 4 (Etappe 7): Spar-Ziel auto, Wartung, Spartempo
+constexpr uint16_t PERSIST_VERSION = 4;
 
 struct PersistState {
   uint32_t magic;
@@ -56,6 +58,14 @@ struct PersistState {
   uint8_t reserved2[3];
   trip::TripRecord lastTrip;   // zuletzt beendete Fahrt
   perf::Best sprintBest;       // beste Zeiten 0–50, 0–100, 80–120 und Kurve 0–100 (A10)
+  float autoGoal;              // Spar-Ziel "auto", beim Tanken neu gesetzt (Z 13), NAN = noch keins
+  // Wartung (Z 9): Tachostand = totalKm + odoOffsetKm; fällig bei Tachostand …Due
+  float odoOffsetKm;           // NAN = Tachostand nie eingetragen
+  float oilDueKm, oilIntervalKm;
+  float inspDueKm, inspIntervalKm;
+  // Spartempo (Z 1): km und Liter je Tempoklasse 30, 40 … 130 km/h
+  float tempoKm[cfg::TEMPO_CLASSES];
+  float tempoL[cfg::TEMPO_CLASSES];
 
   float spare[8];
   uint32_t crc;                // CRC-32 über alles davor

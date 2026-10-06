@@ -200,6 +200,27 @@ void sendScreenshot() {
 
 }  // namespace
 
+void applyBrightness() {
+  const UiSettings& u = uiprefs::get();
+  // ANNAHME: "Auto (GPS)" folgt in Etappe 8 dem Sonnenstand; bis dahin bzw. ohne GPS-Fix gilt Tag
+  const bool night = u.dayNight == 1;
+  display::setBrightness(night ? u.brightNight : u.brightDay);
+  theme::setNight(night);
+}
+
+void sendGoal() {
+  const UiSettings& u = uiprefs::get();
+  Command c{CmdType::SetGoal};
+  c.i = u.goalMode;
+  c.f = u.goalFix;
+  commands::toCalc(c);
+}
+
+void showInfoPage() {
+  for (int i = 0; i < PAGE_COUNT; i++)
+    if (PAGES[i] == infoPage()) showPage(i);
+}
+
 void task(void*) {
   // LVGL holt seine 256 kB aus dem PSRAM (lv_conf.h); ohne PSRAM stürzt lv_init ab
   if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < LV_MEM_SIZE) {
@@ -227,7 +248,8 @@ void task(void*) {
   showPage(current);
   Serial.println("Start: erstes Bild zeichnen");
   lv_refr_now(disp);
-  display::setBrightness(cfg::BRIGHT_DAY_DEFAULT);  // Helligkeit aus dem Menü folgt in Etappe 7
+  applyBrightness();
+  sendGoal();
   Serial.printf("UI bereit, freier interner RAM %u kB, PSRAM %u kB\n",
                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
@@ -243,8 +265,8 @@ void task(void*) {
       menu::update(snap);
       vehicledlg::update(snap);  // "Welches Fahrzeug?", wenn kein Profil eindeutig passt
       if (!PAGES[current]->available(snap)) stepPage(+1);  // z. B. Sensor fehlt plötzlich
-      // Auto-Sprint (A10). ANNAHME: bis zum Menü (Etappe 7) immer an
-      switch (autoSprint.update(snap.now, true, snap.sprint.launchSeq, snap.sprint.state, snap.sprint.doneAtMs,
+      // Auto-Sprint (A10), abschaltbar im Menü
+      switch (autoSprint.update(snap.now, uiprefs::get().autoSprint != 0, snap.sprint.launchSeq, snap.sprint.state, snap.sprint.doneAtMs,
                                 values::value(values::Key::Pedal, snap), overlay::isOpen())) {
         case perf::AutoSprint::Action::ShowSprint:
           beforeSprint = current;
@@ -268,7 +290,8 @@ void task(void*) {
     }
     handleButton(now);
     handleSwipe();
-    // Fehlersuche über USB: S = Bildschirmfoto, n/p = nächste/vorige Seite, g = Tank-Fenster, x = Fenster schließen
+    // Fehlersuche über USB: S = Bildschirmfoto, n/p = nächste/vorige Seite, g = Tank-Fenster, m = Menü,
+    // x = Fenster schließen
     if (cfg::SCREENSHOT_SERIAL && Serial.available() > 0) {
       switch (Serial.read()) {
         case 'S': sendScreenshot(); break;
@@ -276,6 +299,7 @@ void task(void*) {
         case 'p': startscreen::hide(); stepPage(-1); break;
         case 'g': tankdlg::openManual(snap); break;
         case 'x': overlay::close(); break;
+        case 'm': openMenu(); break;
         default: break;
       }
     }

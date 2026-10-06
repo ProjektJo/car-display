@@ -93,6 +93,20 @@ struct ProfileInfo {
   uint16_t redlineRpm = cfg::DEFAULT_REDLINE_RPM;
 };
 
+// Fehlercodes (A11): gespeichert (Mode 03) und vorläufig (Mode 07)
+struct DtcInfo {
+  static constexpr int MAX = 8;
+  bool known = false;           // mindestens einmal gelesen
+  bool busy = false;            // Lesen bzw. Löschen läuft
+  bool failed = false;          // letzte Abfrage ohne Antwort
+  uint8_t nStored = 0, nPending = 0;
+  uint16_t stored[MAX] = {};
+  uint16_t pending[MAX] = {};
+  uint8_t ecus = 0;             // Zahl der antwortenden Steuergeräte
+  uint32_t readAtMs = 0;        // Zeitpunkt des letzten Lesens
+  uint16_t seq = 0;             // zählt jedes Lesen hoch
+};
+
 // Sprintmessung (A10) für Sport- und Sprint-Seite
 struct SprintInfo {
   perf::State state = perf::State::Ready;
@@ -174,6 +188,18 @@ struct CarState {
   Val tripVmax{NAN, 0, cfg::PID_PERIOD_FAST_MS};
   Val tripKwPeak{NAN, 0, cfg::PID_PERIOD_FAST_MS};
   SprintInfo sprint;
+  DtcInfo dtc;
+  // --- Spar-Ziel, Wartung, Spartempo (Etappe 7) ---
+  Val goalBase{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Spar-Ziel auto: Schnitt, aus dem es stammt
+  Val odoKm{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // Tachostand (eigene Zählung)
+  Val oilLeftKm{NAN, 0, cfg::PID_PERIOD_FAST_MS};      // Ölwechsel fällig in … km
+  Val inspLeftKm{NAN, 0, cfg::PID_PERIOD_FAST_MS};     // Inspektion fällig in … km
+  struct {
+    float oilIntervalKm = cfg::OIL_INTERVAL_DEFAULT_KM;
+    float inspIntervalKm = cfg::INSP_INTERVAL_DEFAULT_KM;
+  } maint;
+  float tempoKm[cfg::TEMPO_CLASSES] = {};               // Spartempo je Klasse 30 … 130 km/h
+  float tempoL[cfg::TEMPO_CLASSES] = {};
   trip::TripRecord lastTrip = {};
 
   // --- Optionale Sensoren (Etappe 8) ---

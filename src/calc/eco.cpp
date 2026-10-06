@@ -227,6 +227,8 @@ bool TipEngine::cause(Tip t, const TipInput& in) const {
              now - pedalHighAt_ <= cfg::TIP_LATE_WINDOW_MS;
     case Tip::Idle: return standSince_ && now - standSince_ >= cfg::TIP_IDLE_AFTER_MS;
     case Tip::Steady: return steadyNow_;
+    case Tip::Tempo:
+      return fastSince_ && now - fastSince_ >= cfg::TIP_TEMPO_HOLD_MS && !std::isnan(in.tempoSaveL) && in.tempoSaveL > 0;
     default: return false;
   }
 }
@@ -239,6 +241,7 @@ bool TipEngine::gone(Tip t, const TipInput& in) const {
     case Tip::HardPedal: return std::isnan(in.pedalPct) || in.pedalPct <= cfg::TIP_HARD_PEDAL_PCT;
     case Tip::Idle: return standSince_ == 0;
     case Tip::Steady: return !steadyNow_;
+    case Tip::Tempo: return fastSince_ == 0;
     default: return false;
   }
 }
@@ -268,6 +271,8 @@ Tip TipEngine::update(const TipInput& in) {
   if (!std::isnan(in.pedalPct) && in.pedalPct > cfg::TIP_LATE_PEDAL_PCT) pedalHighAt_ = now;
   const bool standing = in.engineOn && !std::isnan(in.speedKmh) && !moving;
   standSince_ = standing ? (standSince_ ? standSince_ : now) : 0;
+  const bool fast = in.engineOn && !std::isnan(in.speedKmh) && in.speedKmh > cfg::TIP_TEMPO_KMH;
+  fastSince_ = fast ? (fastSince_ ? fastSince_ : now) : 0;
 
   // Gleichmäßig: Tempo und Pedal der letzten 10 s
   steadyNow_ = false;
@@ -309,7 +314,7 @@ Tip TipEngine::update(const TipInput& in) {
 
   // Neuer Tipp: nicht im Schub, nicht in Ruhezeiten, nur einer gleichzeitig
   if (active_ == Tip::None && in.tipsEnabled && !in.fuelCut && !in.quiet && in.engineOn) {
-    static constexpr Tip ORDER[] = {Tip::Coast, Tip::LateLift, Tip::HardPedal, Tip::Idle, Tip::Steady};
+    static constexpr Tip ORDER[] = {Tip::Coast, Tip::LateLift, Tip::HardPedal, Tip::Idle, Tip::Steady, Tip::Tempo};
     for (Tip t : ORDER) {
       if (!cause(t, in) || !ready(t, now)) continue;
       active_ = t;

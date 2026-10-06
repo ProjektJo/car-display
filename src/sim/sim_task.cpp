@@ -43,6 +43,28 @@ void task(void*) {
     Command c;
     while (commands::fromObd(c, 0)) {
       if (c.type == CmdType::SimSprint) drive.requestSprint();
+      // Fehlercodes wie vom Auto: ein Steuergerät, gespeichert P0171 sobald gesetzt (A11)
+      if (c.type == CmdType::ClearDtc && !drive.out().engineOn) {
+        drive.clearDtc();
+        Serial.println("Simulator: Fehlercodes gelöscht");
+      }
+      if (c.type == CmdType::ReadDtc || c.type == CmdType::ClearDtc) {
+        const SimOutput& so = drive.out();
+        const uint32_t t = millis();
+        carstate::modify([&](CarState& s) {
+          s.dtc.known = true;
+          s.dtc.busy = false;
+          s.dtc.failed = false;
+          s.dtc.ecus = 1;
+          s.dtc.nStored = so.dtc ? 1 : 0;
+          s.dtc.stored[0] = so.dtc;
+          s.dtc.nPending = 0;
+          s.dtc.readAtMs = t;
+          s.dtc.seq++;
+          s.mil.set(so.mil ? 1.0f : 0.0f, t);
+          s.dtcCount.set(so.dtcCount, t);
+        });
+      }
     }
 
     drive.step(dtS);

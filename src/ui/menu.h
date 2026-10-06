@@ -1,5 +1,5 @@
-// Menü und Unterdialoge (U Menü). Etappe 2: nur die Zeile Diagnose mit dem Diagnose-Dialog;
-// die übrigen Zeilen und Dialoge folgen in Etappe 7.
+// Menü und Unterdialoge (U Menü): Helligkeit, Spar-Ziel, Fahrzeugart, Wartung, Diagnose, Getankt,
+// Kacheln zurücksetzen, Spartipps, Kalt-Grenze, Auto-Sprint, Fahrt beenden, Info.
 #pragma once
 #include "core/car_state.h"
 

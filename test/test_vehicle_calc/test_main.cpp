@@ -273,6 +273,33 @@ void test_refuel_detection() {
   TEST_ASSERT_EQUAL_UINT16(0, c2.out().refuelSeq);
 }
 
+// Spar-Ziel auto (A9): Ø der letzten 5 Füllungen 6,2 bzw. 4,6 -> 5,7 bzw. 4,3; nie unter 3,0
+void test_auto_goal() {
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 5.7f, autoGoalFrom(6.2f));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 4.3f, autoGoalFrom(4.6f));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 3.0f, autoGoalFrom(3.1f));
+  TEST_ASSERT_FLOAT_IS_NAN(autoGoalFrom(NAN));
+}
+
+// Wartung: Tachostand eintragen, Zähler läuft mit, "Erledigt" setzt neu
+void test_maintenance() {
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x11});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  calc.setOdo(100000);
+  cruise(calc, s, now, 10);  // 10 km
+  TEST_ASSERT_FLOAT_WITHIN(0.2f, 100010.0f, calc.out().odoKm);
+  TEST_ASSERT_FLOAT_WITHIN(0.2f, cfg::OIL_INTERVAL_DEFAULT_KM - 10.0f, calc.out().oilLeftKm);
+  calc.maintenanceDone(0);  // neu ab 100.010 km
+  cruise(calc, s, now, 1);
+  TEST_ASSERT_FLOAT_WITHIN(0.2f, cfg::OIL_INTERVAL_DEFAULT_KM - 1.0f, calc.out().oilLeftKm);
+  calc.setInterval(0, 10000);  // gleicher letzter Termin, kürzeres Intervall
+  cruise(calc, s, now, 0.1f);
+  TEST_ASSERT_FLOAT_WITHIN(0.3f, 10000.0f - 1.1f, calc.out().oilLeftKm);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_sim_drive_liters);
@@ -282,6 +309,8 @@ int main() {
   RUN_TEST(test_fuel_cut_zero);
   RUN_TEST(test_diesel_without_fuel_rate);
   RUN_TEST(test_refuel_detection);
+  RUN_TEST(test_auto_goal);
+  RUN_TEST(test_maintenance);
   return UNITY_END();
 }
 

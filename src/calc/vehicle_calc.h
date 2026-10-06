@@ -13,6 +13,9 @@
 #include "core/car_state.h"
 #include "core/profile.h"
 
+// Spar-Ziel "auto" aus einem Schnitt (A9, Z 13): minus 0,5 l über 5 l, sonst minus 0,3 l; mindestens 3,0
+float autoGoalFrom(float avgL100);
+
 class VehicleCalc {
  public:
   struct Outputs {
@@ -47,6 +50,11 @@ class VehicleCalc {
     // Sport und Sprint (A10)
     float powerKw = NAN;           // geschätzte Leistung am Rad
     float tripVmax = NAN, tripKwPeak = NAN;
+    // Spar-Ziel und Wartung (Etappe 7)
+    float goalL100 = NAN;          // aktuelles Ziel, NAN = aus
+    float goalBase = NAN;          // bei auto: Schnitt, aus dem das Ziel stammt ("6,2 → 5,7")
+    float odoKm = NAN;             // Tachostand, NAN = nie eingetragen
+    float oilLeftKm = NAN, inspLeftKm = NAN;
   };
 
   // Profil laden. saved = gespeicherte Summen dieses Profils oder nullptr (neues Profil).
@@ -77,11 +85,20 @@ class VehicleCalc {
   // Fahrzeug-Prüfung ohne Antwort geschlossen bzw. anderes Fahrzeug gewählt: nicht mehr fragen
   void dismissGearCheck();
 
+  // Einstellungen aus dem Menü (Etappe 7)
+  void setGoal(uint8_t mode, float fixL100);   // 0 aus, 1 auto, 2 fest
+  void setBody(uint8_t body);                  // Fahrzeugart (Profil)
+  void setColdRpm(uint16_t rpm);               // Kalt-Grenze (Profil)
+  void setOdo(float km);                       // Tachostand einmal eintragen
+  void maintenanceDone(int which);             // 0 Ölwechsel, 1 Inspektion: Zähler neu
+  void setInterval(int which, float km);
+  void resetAverages(uint8_t mask);            // Bit 0: 1 km, 1: 10 km, 2: 100 km, 3: Tank
+
  private:
   void decideTrip(const CarState& s, uint32_t nowMs);
   void finishTrip();
   void updateOutputs(const CarState& s, uint32_t nowMs, float dtS);
-  void stepEco(const CarState& s, uint32_t nowMs, float dtS, bool engineOn, bool cut, float lph);
+  void stepEco(const CarState& s, uint32_t nowMs, float dtS, bool engineOn, bool cut, float lph, float dkm, float dl);
   void updateGears(uint32_t nowMs);
 
   bool active_ = false;
@@ -124,6 +141,11 @@ class VehicleCalc {
   uint32_t detectN_ = 0;
   uint32_t lastGearSearchMs_ = 0;
   perf::SprintMeter sprint_;
+  uint8_t goalMode_ = 0;
+  float goalFix_ = cfg::GOAL_FIX_DEFAULT;
+  // Spartempo: ruhige Konstantfahrt seit
+  uint32_t tempoSince_ = 0;
+  float tempoRefV_ = NAN, tempoRefP_ = NAN;
 
   // 1-s-Fenster für den Momentanverbrauch: je Schritt Dauer, Liter·s und km/h·s
   static constexpr int WIN = 16;

@@ -4,6 +4,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
+#include <esp_heap_caps.h>
 
 #include <cmath>
 #include <cstring>
@@ -46,6 +47,10 @@ ProfileSummary list[cfg::MAX_PROFILES];
 int listCount = 0;
 
 uint8_t activeId = 0;        // in calcTask geladenes Profil
+History hist;
+SemaphoreHandle_t histMutex = nullptr;
+volatile bool histWanted = false;
+volatile uint16_t histSeq = 0;
 uint8_t beforeAskId = 0;     // war vor der Frage geladen
 uint16_t handledIdent = 0;   // zuletzt ausgewertete Fahrzeugerkennung (LinkInfo::identSeq)
 bool asking = false;
@@ -219,6 +224,8 @@ void handle(const Msg& m) {
       if (!store::loadProfile(m.profile.id, p)) p = m.profile;
       p.fuelCal = m.profile.fuelCal;
       p.gearCount = m.profile.gearCount;  // Gänge lernt calcTask selbst (A6)
+      p.body = m.profile.body;            // Fahrzeugart und Kalt-Grenze aus dem Menü
+      p.coldRpmLimit = m.profile.coldRpmLimit;
       memcpy(p.gears, m.profile.gears, sizeof(p.gears));
       if (store::saveProfile(p)) refreshList();
       carstate::modify([&](CarState& s) {
@@ -287,7 +294,20 @@ void handle(const Msg& m) {
 void init() {
   queue = xQueueCreate(QUEUE_LEN, sizeof(Msg));
   mutex = xSemaphoreCreateMutex();
+  histMutex = xSemaphoreCreateMutex();
+  hist.trips = static_cast<trip::TripRecord*>(heap_caps_malloc(sizeof(trip::TripRecord) * cfg::TRIP_LOG_SIZE, MALLOC_CAP_SPIRAM));
+  hist.fills = static_cast<trip::FillRecord*>(heap_caps_malloc(sizeof(trip::FillRecord) * cfg::FILL_LOG_SIZE, MALLOC_CAP_SPIRAM));
 }
+
+void requestHistory() { histWanted = true; }
+uint16_t historySeq() { return histSeq; }
+
+const History& lockHistory() {
+  xSemaphoreTake(histMutex, portMAX_DELAY);
+  return hist;
+}
+
+void unlockHistory() { xSemaphoreGive(histMutex); }
 
 void requestSave(const PersistState& st) {
   xSemaphoreTake(mutex, portMAX_DELAY);
@@ -383,6 +403,16 @@ void poll() {
     }
     xSemaphoreGive(mutex);
     if (doSave && !store::saveState(writing)) Serial.println("Speicher: Summen konnten nicht gespeichert werden");
+  }
+
+  // Historie für die UI lesen (nach einem Wunsch der Historie-Seite)
+  if (histWanted && hist.trips && hist.fills) {
+    histWanted = false;
+    xSemaphoreTake(histMutex, portMAX_DELAY);
+    hist.nTrips = activeId ? store::readTrips(activeId, hist.trips, cfg::TRIP_LOG_SIZE) : 0;
+    hist.nFills = activeId ? store::readFills(activeId, hist.fills, cfg::FILL_LOG_SIZE) : 0;
+    xSemaphoreGive(histMutex);
+    histSeq++;
   }
 
   uint16_t ident = 0;

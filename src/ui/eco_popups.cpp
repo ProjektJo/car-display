@@ -97,7 +97,32 @@ void openStartCard(const CarSnapshot& s) {
   fmt::number(n, sizeof(n), t.brakedL, 2);
   snprintf(v, sizeof(v), std::isnan(t.brakedL) ? "%s" : "%s l", n);
   cell(grid, "Gebremst", v, theme::TEXT);
-  // ANNAHME: Die Hinweiszeile (Wartung, Thermostat) kommt mit Etappe 7 bzw. 8.
+  // Höchstens eine Hinweiszeile in warn: Wartung fällig in < 500 km (U Start-Karte); Thermostat ab Etappe 8
+  const float oil = s.oilLeftKm.get(s.now), insp = s.inspLeftKm.get(s.now);
+  const bool oilDue = !std::isnan(oil) && oil < cfg::MAINT_WARN_KM;
+  const bool inspDue = !std::isnan(insp) && insp < cfg::MAINT_WARN_KM;
+  if (oilDue || inspDue) {
+    const bool showOil = oilDue && (!inspDue || oil <= insp);
+    const float left = showOil ? oil : insp;
+    lv_obj_t* line = lv_obj_create(card);
+    lv_obj_remove_style_all(line);
+    lv_obj_set_size(line, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_border_side(line, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(line, 1, 0);
+    lv_obj_set_style_border_color(line, theme::c(theme::LINE), 0);
+    lv_obj_set_style_pad_top(line, 8, 0);
+    lv_obj_set_style_margin_top(line, 6, 0);
+    lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t* a = theme::label(line, &font_m12, false, showOil ? "Ölwechsel fällig" : "Inspektion fällig");
+    lv_obj_set_style_text_color(a, theme::c(theme::WARN), 0);
+    char km[16], t[24];
+    fmt::number(km, sizeof(km), left, 0);
+    if (left > 0) snprintf(t, sizeof(t), "in %s km", km);
+    else snprintf(t, sizeof(t), "jetzt");
+    lv_obj_t* b = theme::label(line, &font_m12, false, t);
+    lv_obj_set_style_text_color(b, theme::c(theme::WARN), 0);
+    lv_obj_align(b, LV_ALIGN_TOP_RIGHT, 0, 0);
+  }
 
   lv_obj_t* foot = theme::label(card, &font_m12, true, "Schließt beim Losfahren oder durch Tippen");
   lv_obj_add_flag(foot, LV_OBJ_FLAG_IGNORE_LAYOUT);

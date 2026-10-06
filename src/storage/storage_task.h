@@ -32,4 +32,18 @@ void createProfile(const Profile& p); // neues Profil aus dem Assistenten
 int summaries(ProfileSummary* out, int max);  // Liste der Profile (Kopie)
 void saveUi(const UiSettings& ui);    // Kacheln, Großanzeige, Diagramme (NVS)
 
+// Historie (uiTask): Fahrtenbuch und Tankfüllungen des geladenen Profils lesen lassen. Das Ergebnis steht
+// danach in history(); historySeq() zählt jedes fertige Lesen hoch.
+struct History {
+  int nTrips = 0;
+  int nFills = 0;
+  trip::TripRecord* trips = nullptr;  // PSRAM, cfg::TRIP_LOG_SIZE Einträge, ältester zuerst
+  trip::FillRecord* fills = nullptr;  // PSRAM, cfg::FILL_LOG_SIZE Einträge
+};
+void requestHistory();
+uint16_t historySeq();
+// Nur lesen, solange lockHistory() gehalten wird
+const History& lockHistory();
+void unlockHistory();
+
 }  // namespace storage

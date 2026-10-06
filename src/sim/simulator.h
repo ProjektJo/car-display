@@ -54,6 +54,13 @@ class DriveSim {
   void step(float dtS);
   // Vollgas-Sequenz beim nächsten Halt starten (BOOT-Taste lang im Simulator)
   void requestSprint() { sprintRequested_ = true; }
+  // Fehlercodes löschen (Mode 04): MIL aus, der Code kommt in dieser Fahrt nicht wieder
+  void clearDtc() {
+    out_.mil = false;
+    out_.dtcCount = 0;
+    out_.dtc = 0;
+    dtcCleared_ = true;
+  }
 
   const SimOutput& out() const { return out_; }
   float timeS() const { return t_; }
@@ -85,6 +92,7 @@ class DriveSim {
   float coolant_ = 15.0f;       // Kaltstart
   float ltft_ = 1.5f;
   bool dtcSet_ = false;
+  bool dtcCleared_ = false;
   bool refuelled_ = false;
   float offT_ = 0;              // Zeit mit Motor aus
   bool sprintRequested_ = false;

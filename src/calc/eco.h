@@ -117,7 +117,7 @@ class GearCheck {
 // Spartipps (A9 Regelwerk). Höchstens ein Tipp, 8 s sichtbar, Sperrzeiten; der Kalte-Motor-Hinweis
 // steht, solange die Bedingung gilt, wenn kein Tipp aktiv ist.
 // ---------------------------------------------------------------------------
-enum class Tip : uint8_t { None, Coast, HardPedal, LateLift, Idle, Steady, Cold, COUNT };
+enum class Tip : uint8_t { None, Coast, HardPedal, LateLift, Idle, Steady, Tempo, Cold, COUNT };
 
 struct TipInput {
   uint32_t nowMs = 0;
@@ -133,6 +133,7 @@ struct TipInput {
   float coldRpmLimit = cfg::DEFAULT_COLD_RPM_LIMIT;
   bool tipsEnabled = true;  // Menü (Etappe 7); der Kalte-Motor-Hinweis gilt immer
   bool quiet = false;       // Fenster offen oder vor < 3 s getippt: kein neuer Tipp
+  float tempoSaveL = NAN;   // Spartempo: l/100 km bei 120 minus bei 100 (beide Klassen ≥ 5 km), sonst NAN
 };
 
 class TipEngine {
@@ -157,6 +158,7 @@ class TipEngine {
   uint32_t hardSince_ = 0;
   uint32_t pedalHighAt_ = 0;
   uint32_t standSince_ = 0;
+  uint32_t fastSince_ = 0;  // über 115 km/h seit
   // Gleichmäßig: Proben der letzten 10 s (Tempo, Pedal)
   static constexpr int STEADY_N = 128;
   float stSpeed_[STEADY_N] = {};

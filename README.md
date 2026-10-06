@@ -2,7 +2,7 @@
 
 Display im Auto: Ein ESP32-S3 liest über einen BLE-OBD2-Adapter (ELM327-kompatibel) die Fahrzeugdaten und hilft vor allem beim spritsparenden Fahren. Spezifikation: `car-display-plan/master-prompt.md` mit `architektur.md`, `ui-entwurf.md` und der Vorschau.
 
-**Stand: Etappe 6 (Sport und Sprint).** Aus Etappe 1 bis 3: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit, Simulator, Bluetooth-Verbindung, ELM327-Client, PID-Scheduler, Startbildschirm, Diagnose, Verbrauch, Mittelwerte, Tank und Reichweite, Kalibrierung, Fahrten, Speichern im Flash und Fahrzeugprofile. Etappe 4: Eco-Seite mit Momentanverbrauch, Eco-Kurve, Gang mit Schaltpfeil, Spartipps, Eco-Score, Schub gespart und Gebremst, Gänge lernen, Fahrzeug-Prüfung und Start-Karte. Etappe 5: Übersicht mit belegbaren Kacheln, Großanzeige, Fahrt & Tank, Tank-Fenster mit automatischer Tankerkennung, Diagramme. Etappe 6: Sport-Seite mit Drehzahlbogen und Live-Diagramm, Sprint-Seite mit 0–50, 0–100, 80–120 und Auto-Sprint. Einzelheiten: `docs/etappe4.md` bis `docs/etappe6.md`.
+**Stand: Etappe 7 (Auswertung und Menü).** Aus Etappe 1 bis 3: Display, Touch, LVGL mit Theme, Statusleiste, Wischnavigation, BOOT-Taste, Helligkeit, Simulator, Bluetooth-Verbindung, ELM327-Client, PID-Scheduler, Startbildschirm, Diagnose, Verbrauch, Mittelwerte, Tank und Reichweite, Kalibrierung, Fahrten, Speichern im Flash und Fahrzeugprofile. Etappe 4: Eco-Seite mit Momentanverbrauch, Eco-Kurve, Gang mit Schaltpfeil, Spartipps, Eco-Score, Schub gespart und Gebremst, Gänge lernen, Fahrzeug-Prüfung und Start-Karte. Etappe 5: Übersicht mit belegbaren Kacheln, Großanzeige, Fahrt & Tank, Tank-Fenster mit automatischer Tankerkennung, Diagramme. Etappe 6: Sport-Seite mit Drehzahlbogen und Live-Diagramm, Sprint-Seite mit 0–50, 0–100, 80–120 und Auto-Sprint. Etappe 7: Historie (Fahrten, Tankfüllungen, Auswertung, Spartempo), Fehlercodes mit deutschem Klartext und Löschen, Info-Seite, Menü mit Helligkeit, Spar-Ziel, Fahrzeugart, Wartung und allen Schaltern. Einzelheiten: `docs/etappe4.md` bis `docs/etappe7.md`.
 
 ## Hardware
 
@@ -55,13 +55,13 @@ OBD: läuft, 11 Werte im Plan
 
 Bitte die Zeile mit den unterstützten PIDs nach der ersten Fahrt aufheben: Sie zeigt, ob der Modus Tankfüllstand (2F) und Gaspedal (49) liefert.
 
-## Bedienung (Stand Etappe 6)
+## Bedienung (Stand Etappe 7)
 
 | Eingabe | Wirkung |
 |---|---|
 | Wischen nach links / rechts | nächste / vorige Seite, Endlosschleife |
 | Von oben nach unten wischen (Start in den obersten 40 px) | Menü |
-| Lang drücken (0,8 s) auf eine freie Fläche oder die Statusleiste | Menü (bis Etappe 7: nur Diagnose) |
+| Lang drücken (0,8 s) auf eine freie Fläche oder die Statusleiste | Menü |
 | BOOT kurz | nächste Seite; ist ein Fenster offen, schließt es; blendet den Startbildschirm aus |
 | BOOT lang (0,8 s) | Menü |
 | BOOT sehr lang (2 s), nur Simulator | Vollgas-Sequenz beim nächsten Halt |

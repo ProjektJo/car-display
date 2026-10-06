@@ -169,7 +169,7 @@ void DriveSim::step(float dtS) {
   t_ += dtS;
 
   // Ereignisse
-  if (!dtcSet_ && t_ >= DTC_AT_S) {
+  if (!dtcSet_ && !dtcCleared_ && t_ >= DTC_AT_S) {
     dtcSet_ = true;
     out_.mil = true;
     out_.dtcCount = 1;

@@ -10,12 +10,14 @@
 
 #include <Arduino.h>
 
+#include <cmath>
 #include <cstring>
 
 #include "config.h"
 #include "core/car_state_store.h"
 #include "core/commands.h"
 #include "obd/ble_link.h"
+#include "obd/dtc.h"
 #include "obd/elm327.h"
 #include "obd/elm_parser.h"
 #include "obd/pid_scheduler.h"
@@ -33,6 +35,8 @@ elmp::Message msgs[MAX_MESSAGES];
 elmp::PidValue vals[MAX_VALUES];
 PidScheduler scheduler;
 size_t retryStep = 0;
+bool wantDtcRead = true;   // nach dem Verbinden einmal lesen
+bool wantDtcClear = false;
 
 void setState(LinkState st) {
   carstate::modify([&](CarState& s) {
@@ -48,6 +52,8 @@ void setState(LinkState st) {
 void drainCommands() {
   Command c;
   while (commands::fromObd(c, 0)) {
+    if (c.type == CmdType::ReadDtc) wantDtcRead = true;
+    if (c.type == CmdType::ClearDtc) wantDtcClear = true;
   }
   bool sprint = false;
   {
@@ -194,6 +200,67 @@ void apply(const elmp::PidValue* v, int count, uint32_t now) {
   });
 }
 
+// Fehlercodes lesen: Mode 03 (gespeichert) und 07 (vorläufig) (A11). false = Verbindung weg.
+bool readDtcs() {
+  carstate::modify([](CarState& s) { s.dtc.busy = true; });
+  dtc::Code stored[DtcInfo::MAX] = {}, pending[DtcInfo::MAX] = {};
+  int nStored = 0, nPending = 0, ecus = 0;
+  bool ok = true;
+  for (uint8_t mode : {0x03, 0x07}) {
+    char cmd[4];
+    snprintf(cmd, sizeof(cmd), "%02X", mode);
+    const elm::Result r = elm::command(cmd, reply, sizeof(reply), cfg::ELM_VIN_TIMEOUT_MS);
+    if (r == elm::Result::Lost) return false;
+    const elmp::Reply kind = r == elm::Result::Ok ? elmp::classify(reply) : elmp::Reply::Error;
+    if (kind == elmp::Reply::Data) {
+      const int n = elmp::parseMessages(reply, msgs, MAX_MESSAGES);
+      if (mode == 0x03) ecus = n;
+      if (mode == 0x03)
+        nStored = dtc::decode(msgs, n, mode, stored, DtcInfo::MAX);
+      else
+        nPending = dtc::decode(msgs, n, mode, pending, DtcInfo::MAX);
+    } else if (kind != elmp::Reply::NoData) {
+      ok = false;  // "NO DATA" heißt: keine Codes; alles andere ist ein Fehler
+    }
+  }
+  const uint32_t now = millis();
+  carstate::modify([&](CarState& s) {
+    s.dtc.busy = false;
+    s.dtc.failed = !ok;
+    if (ok) {
+      s.dtc.known = true;
+      s.dtc.nStored = static_cast<uint8_t>(nStored);
+      s.dtc.nPending = static_cast<uint8_t>(nPending);
+      memcpy(s.dtc.stored, stored, sizeof(stored));
+      memcpy(s.dtc.pending, pending, sizeof(pending));
+      s.dtc.ecus = static_cast<uint8_t>(ecus);
+      s.dtc.readAtMs = now;
+    }
+    s.dtc.seq++;
+  });
+  Serial.printf("Fehlercodes: %d gespeichert, %d vorläufig%s\n", nStored, nPending, ok ? "" : " (Abfrage fehlgeschlagen)");
+  return true;
+}
+
+// Fehlercodes löschen (Mode 04), nur bei stehendem Motor (A11). false = Verbindung weg.
+bool clearDtcs() {
+  bool engineOff = false;
+  {
+    CarState& s = carstate::lock();
+    const float rpm = s.rpm.get(millis());
+    engineOff = std::isnan(rpm) || rpm < 1.0f;
+    carstate::unlock();
+  }
+  if (!engineOff) {
+    Serial.println("Fehlercodes: Löschen nur bei stehendem Motor");
+    return true;
+  }
+  const elm::Result r = elm::command("04", reply, sizeof(reply), cfg::ELM_VIN_TIMEOUT_MS);
+  if (r == elm::Result::Lost) return false;
+  Serial.printf("Fehlercodes gelöscht: %s\n", reply);
+  return true;
+}
+
 // Abfragen nach Takt-Klassen, bis die Verbindung abreißt oder das Auto schweigt
 LinkError runLoop() {
   uint8_t failed = 0;
@@ -203,6 +270,15 @@ LinkError runLoop() {
 
   for (;;) {
     drainCommands();
+    if (wantDtcClear) {
+      wantDtcClear = false;
+      if (!clearDtcs()) return LinkError::ConnectionLost;
+      wantDtcRead = true;
+    }
+    if (wantDtcRead) {
+      wantDtcRead = false;
+      if (!readDtcs()) return LinkError::ConnectionLost;
+    }
     const ObdRequest rq = scheduler.next(millis());
     if (rq.voltage) {
       snprintf(cmd, sizeof(cmd), "ATRV");
@@ -302,6 +378,7 @@ void task(void*) {
     });
     retryStep = 0;
     scheduler.reset(bits, can, cfg::OBD_MAX_PIDS_PER_REQUEST);
+    wantDtcRead = true;  // nach jedem Verbinden die Fehlercodes lesen
     Serial.printf("OBD: läuft, %d Werte im Plan%s\n", scheduler.itemCount(), can ? ", CAN mit mehreren PIDs je Anfrage" : "");
 
     const LinkError why = runLoop();

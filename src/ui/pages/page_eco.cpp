@@ -14,6 +14,7 @@
 #include "ui/overlay.h"
 #include "ui/symbols.h"
 #include "ui/theme.h"
+#include "ui/ui_prefs.h"
 #include "util/format.h"
 
 namespace {
@@ -231,13 +232,19 @@ class EcoPage : public Page {
     in.rpm = s.rpm.get(s.now);
     in.coldCoolantC = s.profile.coldCoolantC;
     in.coldRpmLimit = s.profile.coldRpmLimit;
-    in.tipsEnabled = true;  // ANNAHME: Schalter "Spartipps an/aus" kommt mit dem Menü (Etappe 7)
+    in.tipsEnabled = uiprefs::get().tips != 0;  // Menü "Spartipps an/aus"
+    // Tempo-Tipp: Ersparnis 100 statt 120 aus der eigenen Spartempo-Statistik (beide Klassen ≥ 5 km)
+    constexpr int C100 = static_cast<int>((100 - cfg::TEMPO_FIRST_KMH) / cfg::TEMPO_STEP_KMH);
+    constexpr int C120 = static_cast<int>((120 - cfg::TEMPO_FIRST_KMH) / cfg::TEMPO_STEP_KMH);
+    if (s.tempoKm[C100] >= cfg::TEMPO_MIN_KM && s.tempoKm[C120] >= cfg::TEMPO_MIN_KM)
+      in.tempoSaveL = s.tempoL[C120] / s.tempoKm[C120] * 100.0f - s.tempoL[C100] / s.tempoKm[C100] * 100.0f;
+    tempoSave_ = in.tempoSaveL;
     in.quiet = overlay::isOpen() || s.now - touch::lastTouchMs() < cfg::TIP_TOUCH_QUIET_MS;
     const eco::Tip before = tip_;
     tip_ = tips_.update(in);
     if (tip_ != before) {
       static const char* const NAMES[] = {"aus", "Gang rein", "Sanfter Gas", "Früher vom Gas", "Langer Stand", "Gleichmäßig",
-                                          "Motor kalt"};
+                                          "Tempo", "Motor kalt"};
       Serial.printf("Hinweis: %s\n", NAMES[static_cast<int>(tip_)]);
     }
     // Pfeil, sobald die Schaltempfehlung 1 s anliegt (A9)
@@ -383,6 +390,15 @@ class EcoPage : public Page {
         snprintf(pill, sizeof(pill), "P");
         snprintf(txt, sizeof(txt), "Stand %u:%02u", (unsigned)(sec / 60), (unsigned)(sec % 60));
         snprintf(txt2, sizeof(txt2), "Motor aus?");
+        break;
+      }
+      case eco::Tip::Tempo: {
+        char n[12];
+        fmt::number(n, sizeof(n), tempoSave_, 1);
+        snprintf(pill, sizeof(pill), "%s", "100");
+        snprintf(txt, sizeof(txt), "100 statt 120");
+        snprintf(txt2, sizeof(txt2), "\xE2\x80\x93%s l/100 km", n);
+        font2 = &font_small;
         break;
       }
       case eco::Tip::Steady:
@@ -559,6 +575,7 @@ class EcoPage : public Page {
   eco::TipEngine tips_;
   eco::Tip tip_ = eco::Tip::None;
   uint32_t shiftSince_ = 0;
+  float tempoSave_ = NAN;
 };
 
 }  // namespace

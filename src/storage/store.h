@@ -30,6 +30,9 @@ bool saveState(const PersistState& st);
 
 bool appendTrip(uint8_t id, const trip::TripRecord& r);
 bool appendFill(uint8_t id, const trip::FillRecord& r);
+// Fahrtenbuch bzw. Tankfüllungen lesen, ältester Eintrag zuerst; liefert die Anzahl
+int readTrips(uint8_t id, trip::TripRecord* out, int max);
+int readFills(uint8_t id, trip::FillRecord* out, int max);
 
 // NVS: zuletzt benutztes Profil (0 = keins)
 uint8_t lastProfileId();

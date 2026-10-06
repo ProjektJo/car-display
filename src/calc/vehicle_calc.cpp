@@ -25,6 +25,18 @@ void initPersist(PersistState& st, uint8_t profileId) {
   st.idleLph = NAN;
   st.hasLastTrip = 0;
   st.sprintBest.clear();
+  st.autoGoal = NAN;
+  st.odoOffsetKm = NAN;
+  st.oilDueKm = st.inspDueKm = NAN;
+  st.oilIntervalKm = cfg::OIL_INTERVAL_DEFAULT_KM;
+  st.inspIntervalKm = cfg::INSP_INTERVAL_DEFAULT_KM;
+}
+
+float autoGoalFrom(float avg) {
+  // (siehe vehicle_calc.h)
+  if (std::isnan(avg)) return NAN;
+  const float g = avg - (avg > cfg::GOAL_AUTO_THRESHOLD ? cfg::GOAL_AUTO_MINUS_HIGH : cfg::GOAL_AUTO_MINUS_LOW);
+  return g < cfg::GOAL_MIN ? cfg::GOAL_MIN : g;
 }
 
 void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t nowMs) {
@@ -137,6 +149,61 @@ void VehicleCalc::stepRefuelDetect(const CarState& s, uint32_t nowMs, bool engin
   if (!std::isnan(levelSmooth_)) st_.levelAtStopPct = levelSmooth_;
 }
 
+void VehicleCalc::setGoal(uint8_t mode, float fixL100) {
+  goalMode_ = mode;
+  goalFix_ = fixL100;
+}
+
+void VehicleCalc::setBody(uint8_t body) {
+  if (!active_ || body >= cfg::BODY_TYPE_COUNT || body == profile_.body) return;
+  profile_.body = body;
+  profileChanged_ = true;
+}
+
+void VehicleCalc::setColdRpm(uint16_t rpm) {
+  if (!active_ || rpm == profile_.coldRpmLimit) return;
+  profile_.coldRpmLimit = rpm;
+  profileChanged_ = true;
+}
+
+void VehicleCalc::setOdo(float km) {
+  if (!active_ || !(km >= 0)) return;
+  st_.odoOffsetKm = static_cast<float>(km - st_.totalKm);
+  // Beim ersten Eintrag beginnen beide Zähler hier
+  if (std::isnan(st_.oilDueKm)) st_.oilDueKm = km + st_.oilIntervalKm;
+  if (std::isnan(st_.inspDueKm)) st_.inspDueKm = km + st_.inspIntervalKm;
+  saveNow_ = true;
+}
+
+void VehicleCalc::maintenanceDone(int which) {
+  if (!active_ || std::isnan(st_.odoOffsetKm)) return;
+  const float odo = static_cast<float>(st_.totalKm + st_.odoOffsetKm);
+  if (which == 0) st_.oilDueKm = odo + st_.oilIntervalKm;
+  else st_.inspDueKm = odo + st_.inspIntervalKm;
+  saveNow_ = true;
+}
+
+void VehicleCalc::setInterval(int which, float km) {
+  if (!active_ || !(km > 0)) return;
+  float& interval = which == 0 ? st_.oilIntervalKm : st_.inspIntervalKm;
+  float& due = which == 0 ? st_.oilDueKm : st_.inspDueKm;
+  if (!std::isnan(due)) due += km - interval;  // gleicher letzter Termin, neues Intervall
+  interval = km;
+  saveNow_ = true;
+}
+
+void VehicleCalc::resetAverages(uint8_t mask) {
+  if (!active_) return;
+  if (mask & 1) st_.ring1.init(cfg::AVG1_SLOTS, cfg::AVG1_SLOT_M);
+  if (mask & 2) st_.ring10.init(cfg::AVG10_SLOTS, cfg::AVG10_SLOT_M);
+  if (mask & 4) st_.ring100.init(cfg::AVG100_SLOTS, cfg::AVG100_SLOT_M);
+  if (mask & 8) {
+    st_.fillKm = st_.fillL = 0;
+    st_.prevFillL100 = NAN;
+  }
+  saveNow_ = true;
+}
+
 void VehicleCalc::relearnGears() {
   if (!active_) return;
   st_.gearHist.clear();
@@ -172,7 +239,8 @@ void VehicleCalc::updateGears(uint32_t nowMs) {
 }
 
 // Gang, Schaltempfehlung, Lernen, Fahrzeug-Prüfung, Eco-Score, Bremsenergie, Schub gespart (A6, A9)
-void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool engineOn, bool cut, float lph) {
+void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool engineOn, bool cut, float lph, float dkm,
+                          float dl) {
   const float speed = s.speed.get(nowMs);
   const float rpm = s.rpm.get(nowMs);
 
@@ -233,6 +301,27 @@ void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool eng
     stable_.reset();
   }
   updateGears(nowMs);
+
+  // Spartempo (Z 1): höchster gelernter Gang, Tempo ± 3 km/h und Pedal ruhig seit 20 s
+  {
+    const bool top = profile_.gearCount > 0 && idx == profile_.gearCount - 1;
+    if (engineOn && top && !cut && !std::isnan(speed) && !std::isnan(pedal)) {
+      if (!tempoSince_ || std::fabs(speed - tempoRefV_) > cfg::TEMPO_BAND_KMH ||
+          std::fabs(pedal - tempoRefP_) > cfg::TEMPO_PEDAL_BAND_PCT) {
+        tempoSince_ = nowMs ? nowMs : 1;
+        tempoRefV_ = speed;
+        tempoRefP_ = pedal;
+      } else if (nowMs - tempoSince_ >= cfg::TEMPO_STEADY_MS) {
+        const int cls = static_cast<int>(std::lround((tempoRefV_ - cfg::TEMPO_FIRST_KMH) / cfg::TEMPO_STEP_KMH));
+        if (cls >= 0 && cls < cfg::TEMPO_CLASSES) {
+          st_.tempoKm[cls] += dkm;
+          st_.tempoL[cls] += dl;
+        }
+      }
+    } else {
+      tempoSince_ = 0;
+    }
+  }
 
   // Schaltempfehlung (A9)
   const float nextMin = profile_.fuel == FuelType::Diesel ? cfg::SHIFT_NEXT_MIN_RPM_DIESEL : cfg::SHIFT_NEXT_MIN_RPM_PETROL;
@@ -414,7 +503,7 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
     standstillSaved_ = false;
   }
 
-  stepEco(s, nowMs, dtS, engineOn, cut, lph);
+  stepEco(s, nowMs, dtS, engineOn, cut, lph, fuelKnown ? dkm : 0.0f, fuelKnown ? dl : 0.0f);
 
   // Momentanverbrauch: 1-s-Fenster
   if (std::isnan(lph)) {
@@ -499,6 +588,25 @@ void VehicleCalc::updateOutputs(const CarState& s, uint32_t nowMs, float dtS) {
   out_.fillL = static_cast<float>(st_.fillL);
   out_.tripIdleS = tr.active ? static_cast<float>(tr.idleS) : NAN;
   out_.sinceFullL = static_cast<float>(st_.hadFullFill ? st_.calComputedL : st_.fillL);
+  // Spar-Ziel (A9): aus, auto (beim Tanken gesetzt; bis zur ersten Füllung aus dem Gesamtschnitt) oder fest
+  out_.goalBase = NAN;
+  if (goalMode_ == 1) {
+    const float fills = st_.fills.l100();
+    out_.goalBase = std::isnan(fills) ? out_.avgProfile : fills;
+    out_.goalL100 = std::isnan(st_.autoGoal) ? autoGoalFrom(out_.goalBase) : st_.autoGoal;
+  } else if (goalMode_ == 2) {
+    out_.goalL100 = goalFix_;
+  } else {
+    out_.goalL100 = NAN;
+  }
+  // Wartung (Z 9)
+  if (std::isnan(st_.odoOffsetKm)) {
+    out_.odoKm = out_.oilLeftKm = out_.inspLeftKm = NAN;
+  } else {
+    out_.odoKm = static_cast<float>(st_.totalKm + st_.odoOffsetKm);
+    out_.oilLeftKm = st_.oilDueKm - out_.odoKm;
+    out_.inspLeftKm = st_.inspDueKm - out_.odoKm;
+  }
 }
 
 bool VehicleCalc::takeTripRecord(trip::TripRecord& r) {
@@ -580,6 +688,11 @@ trip::FillRecord VehicleCalc::refuel(float liters, float price, bool full, trip:
 
   if (st_.fillKm >= cfg::AVG_SIMPLE_MIN_KM) st_.prevFillL100 = r.l100;
   if (st_.fillKm > 0) st_.fills.push(static_cast<float>(st_.fillKm), static_cast<float>(st_.fillL));
+  // Spar-Ziel auto wird bei jedem Tanken neu gesetzt (A9): Ø der letzten 5 Füllungen, ersatzweise Gesamt
+  {
+    const float fills = st_.fills.l100();
+    st_.autoGoal = autoGoalFrom(std::isnan(fills) ? avg::simpleL100(static_cast<float>(st_.totalKm), static_cast<float>(st_.totalL)) : fills);
+  }
   st_.fillKm = st_.fillL = 0;
   saveNow_ = true;
   return r;

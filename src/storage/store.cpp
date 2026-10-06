@@ -96,7 +96,44 @@ bool appendRing(const char* p, const void* rec, uint16_t recSize, uint16_t capac
   return ok;
 }
 
+// Ringdatei lesen: die Einträge in zeitlicher Reihenfolge (ältester zuerst). Liefert die Anzahl.
+int readRing(const char* p, void* out, uint16_t recSize, uint16_t capacity, int max) {
+  if (!LittleFS.exists(p)) return 0;
+  File f = LittleFS.open(p, "r");
+  if (!f) return 0;
+  RingHeader h{};
+  int n = 0;
+  if (f.read(reinterpret_cast<uint8_t*>(&h), sizeof(h)) == sizeof(h) && h.magic == RING_MAGIC && h.recSize == recSize &&
+      h.capacity == capacity && h.count <= capacity && h.next < capacity) {
+    const int count = h.count < max ? h.count : max;
+    // ältester Eintrag: bei vollem Ring an "next", sonst an 0; nur die jüngsten "count" lesen
+    const int first = (h.next - count + capacity) % capacity;
+    for (int i = 0; i < count; i++) {
+      const int slot = (first + i) % capacity;
+      if (!f.seek(sizeof(RingHeader) + static_cast<size_t>(slot) * recSize)) break;
+      if (f.read(static_cast<uint8_t*>(out) + static_cast<size_t>(n) * recSize, recSize) != recSize) break;
+      n++;
+    }
+  }
+  f.close();
+  return n;
+}
+
 }  // namespace
+
+int readTrips(uint8_t id, trip::TripRecord* out, int max) {
+  if (!mounted) return 0;
+  char pth[48];
+  path(pth, sizeof(pth), "/data/p%u_trips.bin", id);
+  return readRing(pth, out, sizeof(trip::TripRecord), cfg::TRIP_LOG_SIZE, max);
+}
+
+int readFills(uint8_t id, trip::FillRecord* out, int max) {
+  if (!mounted) return 0;
+  char pth[48];
+  path(pth, sizeof(pth), "/data/p%u_fills.bin", id);
+  return readRing(pth, out, sizeof(trip::FillRecord), cfg::FILL_LOG_SIZE, max);
+}
 
 bool begin() {
   // Partition "spiffs" aus partitions.csv; formatieren nur, wenn sie sich nicht einbinden lässt

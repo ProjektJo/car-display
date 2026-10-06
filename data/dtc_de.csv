@@ -1,0 +1,313 @@
+# Generische OBD-Fehlercodes (SAE J2012 / ISO 15031-6) mit deutschem Klartext (A11).
+# Quelle der Bedeutungen: die genormten Kurztexte; kurz gefasst für das Display.
+# Ändern: Zeile bearbeiten, dann "python tools/make_dtc_table.py" (erzeugt src/obd/dtc_table.cpp).
+# Format: Code;Text
+P0010;Nockenwellenversteller Einlass Bank 1: Stromkreis
+P0011;Nockenwelle Einlass Bank 1: zu früh
+P0012;Nockenwelle Einlass Bank 1: zu spät
+P0013;Nockenwellenversteller Auslass Bank 1: Stromkreis
+P0014;Nockenwelle Auslass Bank 1: zu früh
+P0015;Nockenwelle Auslass Bank 1: zu spät
+P0016;Kurbelwelle/Nockenwelle Einlass Bank 1: Zuordnung
+P0017;Kurbelwelle/Nockenwelle Auslass Bank 1: Zuordnung
+P0020;Nockenwellenversteller Einlass Bank 2: Stromkreis
+P0021;Nockenwelle Einlass Bank 2: zu früh
+P0022;Nockenwelle Einlass Bank 2: zu spät
+P0030;Lambdasonde 1 Bank 1, Heizung: Stromkreis
+P0031;Lambdasonde 1 Bank 1, Heizung: Spannung zu niedrig
+P0032;Lambdasonde 1 Bank 1, Heizung: Spannung zu hoch
+P0036;Lambdasonde 2 Bank 1, Heizung: Stromkreis
+P0037;Lambdasonde 2 Bank 1, Heizung: Spannung zu niedrig
+P0038;Lambdasonde 2 Bank 1, Heizung: Spannung zu hoch
+P0040;Lambdasonden-Signale vertauscht Bank 1/2
+P0050;Lambdasonde 1 Bank 2, Heizung: Stromkreis
+P0051;Lambdasonde 1 Bank 2, Heizung: Spannung zu niedrig
+P0052;Lambdasonde 1 Bank 2, Heizung: Spannung zu hoch
+P0056;Lambdasonde 2 Bank 2, Heizung: Stromkreis
+P0057;Lambdasonde 2 Bank 2, Heizung: Spannung zu niedrig
+P0058;Lambdasonde 2 Bank 2, Heizung: Spannung zu hoch
+P0068;Saugrohrdruck/Luftmasse passt nicht zur Drosselklappe
+P0069;Saugrohrdruck passt nicht zum Luftdruck
+P0070;Außentemperaturfühler: Stromkreis
+P0071;Außentemperaturfühler: Messbereich/Funktion
+P0072;Außentemperaturfühler: Signal zu niedrig
+P0073;Außentemperaturfühler: Signal zu hoch
+P0087;Kraftstoffdruck zu niedrig
+P0088;Kraftstoffdruck zu hoch
+P0089;Kraftstoffdruckregler: Funktion
+P0090;Kraftstoffdruckregler: Stromkreis
+P0093;Kraftstoffsystem: großes Leck
+P0100;Luftmassenmesser: Stromkreis
+P0101;Luftmassenmesser: Messbereich/Funktion
+P0102;Luftmassenmesser: Signal zu niedrig
+P0103;Luftmassenmesser: Signal zu hoch
+P0104;Luftmassenmesser: Signal unterbrochen
+P0105;Saugrohrdruckfühler: Stromkreis
+P0106;Saugrohrdruckfühler: Messbereich/Funktion
+P0107;Saugrohrdruckfühler: Signal zu niedrig
+P0108;Saugrohrdruckfühler: Signal zu hoch
+P0109;Saugrohrdruckfühler: Signal unterbrochen
+P0110;Ansauglufttemperaturfühler: Stromkreis
+P0111;Ansauglufttemperaturfühler: Messbereich/Funktion
+P0112;Ansauglufttemperaturfühler: Signal zu niedrig
+P0113;Ansauglufttemperaturfühler: Signal zu hoch
+P0114;Ansauglufttemperaturfühler: Signal unterbrochen
+P0115;Kühlmitteltemperaturfühler: Stromkreis
+P0116;Kühlmitteltemperaturfühler: Messbereich/Funktion
+P0117;Kühlmitteltemperaturfühler: Signal zu niedrig
+P0118;Kühlmitteltemperaturfühler: Signal zu hoch
+P0119;Kühlmitteltemperaturfühler: Signal unterbrochen
+P0120;Drosselklappen-/Pedalgeber A: Stromkreis
+P0121;Drosselklappen-/Pedalgeber A: Messbereich/Funktion
+P0122;Drosselklappen-/Pedalgeber A: Signal zu niedrig
+P0123;Drosselklappen-/Pedalgeber A: Signal zu hoch
+P0124;Drosselklappen-/Pedalgeber A: Signal unterbrochen
+P0125;Kühlmittel zu kalt für Lambdaregelung
+P0126;Kühlmittel zu kalt für stabilen Betrieb
+P0128;Thermostat: Kühlmittel unter Solltemperatur
+P0130;Lambdasonde 1 Bank 1: Stromkreis
+P0131;Lambdasonde 1 Bank 1: Spannung zu niedrig
+P0132;Lambdasonde 1 Bank 1: Spannung zu hoch
+P0133;Lambdasonde 1 Bank 1: Reaktion zu langsam
+P0134;Lambdasonde 1 Bank 1: keine Aktivität
+P0135;Lambdasonde 1 Bank 1, Heizung: Fehlfunktion
+P0136;Lambdasonde 2 Bank 1: Stromkreis
+P0137;Lambdasonde 2 Bank 1: Spannung zu niedrig
+P0138;Lambdasonde 2 Bank 1: Spannung zu hoch
+P0139;Lambdasonde 2 Bank 1: Reaktion zu langsam
+P0140;Lambdasonde 2 Bank 1: keine Aktivität
+P0141;Lambdasonde 2 Bank 1, Heizung: Fehlfunktion
+P0150;Lambdasonde 1 Bank 2: Stromkreis
+P0151;Lambdasonde 1 Bank 2: Spannung zu niedrig
+P0152;Lambdasonde 1 Bank 2: Spannung zu hoch
+P0153;Lambdasonde 1 Bank 2: Reaktion zu langsam
+P0154;Lambdasonde 1 Bank 2: keine Aktivität
+P0155;Lambdasonde 1 Bank 2, Heizung: Fehlfunktion
+P0156;Lambdasonde 2 Bank 2: Stromkreis
+P0157;Lambdasonde 2 Bank 2: Spannung zu niedrig
+P0158;Lambdasonde 2 Bank 2: Spannung zu hoch
+P0159;Lambdasonde 2 Bank 2: Reaktion zu langsam
+P0160;Lambdasonde 2 Bank 2: keine Aktivität
+P0161;Lambdasonde 2 Bank 2, Heizung: Fehlfunktion
+P0170;Gemischregelung Bank 1: Fehlfunktion
+P0171;Gemisch zu mager (Bank 1)
+P0172;Gemisch zu fett (Bank 1)
+P0173;Gemischregelung Bank 2: Fehlfunktion
+P0174;Gemisch zu mager (Bank 2)
+P0175;Gemisch zu fett (Bank 2)
+P0180;Kraftstofftemperaturfühler A: Stromkreis
+P0181;Kraftstofftemperaturfühler A: Messbereich/Funktion
+P0182;Kraftstofftemperaturfühler A: Signal zu niedrig
+P0183;Kraftstofftemperaturfühler A: Signal zu hoch
+P0190;Kraftstoffdruckfühler (Rail): Stromkreis
+P0191;Kraftstoffdruckfühler (Rail): Messbereich/Funktion
+P0192;Kraftstoffdruckfühler (Rail): Signal zu niedrig
+P0193;Kraftstoffdruckfühler (Rail): Signal zu hoch
+P0194;Kraftstoffdruckfühler (Rail): Signal unterbrochen
+P0195;Motoröltemperaturfühler: Stromkreis
+P0196;Motoröltemperaturfühler: Messbereich/Funktion
+P0197;Motoröltemperaturfühler: Signal zu niedrig
+P0198;Motoröltemperaturfühler: Signal zu hoch
+P0200;Einspritzventile: Stromkreis
+P0201;Einspritzventil Zylinder 1: Stromkreis
+P0202;Einspritzventil Zylinder 2: Stromkreis
+P0203;Einspritzventil Zylinder 3: Stromkreis
+P0204;Einspritzventil Zylinder 4: Stromkreis
+P0205;Einspritzventil Zylinder 5: Stromkreis
+P0206;Einspritzventil Zylinder 6: Stromkreis
+P0207;Einspritzventil Zylinder 7: Stromkreis
+P0208;Einspritzventil Zylinder 8: Stromkreis
+P0216;Einspritzzeitpunkt: Stromkreis
+P0217;Motor überhitzt
+P0218;Getriebe überhitzt
+P0219;Motor-Überdrehzahl
+P0220;Drosselklappen-/Pedalgeber B: Stromkreis
+P0221;Drosselklappen-/Pedalgeber B: Messbereich/Funktion
+P0222;Drosselklappen-/Pedalgeber B: Signal zu niedrig
+P0223;Drosselklappen-/Pedalgeber B: Signal zu hoch
+P0225;Drosselklappen-/Pedalgeber C: Stromkreis
+P0230;Kraftstoffpumpe: Stromkreis Primärseite
+P0231;Kraftstoffpumpe: Sekundärkreis zu niedrig
+P0232;Kraftstoffpumpe: Sekundärkreis zu hoch
+P0234;Ladedruck zu hoch (Überladung)
+P0235;Ladedruckfühler A: Stromkreis
+P0236;Ladedruckfühler A: Messbereich/Funktion
+P0237;Ladedruckfühler A: Signal zu niedrig
+P0238;Ladedruckfühler A: Signal zu hoch
+P0243;Wastegate-Magnetventil A: Stromkreis
+P0261;Einspritzventil Zylinder 1: Signal zu niedrig
+P0262;Einspritzventil Zylinder 1: Signal zu hoch
+P0264;Einspritzventil Zylinder 2: Signal zu niedrig
+P0265;Einspritzventil Zylinder 2: Signal zu hoch
+P0267;Einspritzventil Zylinder 3: Signal zu niedrig
+P0268;Einspritzventil Zylinder 3: Signal zu hoch
+P0270;Einspritzventil Zylinder 4: Signal zu niedrig
+P0271;Einspritzventil Zylinder 4: Signal zu hoch
+P0299;Ladedruck zu niedrig
+P0300;Zündaussetzer erkannt (mehrere Zylinder)
+P0301;Zündaussetzer Zylinder 1
+P0302;Zündaussetzer Zylinder 2
+P0303;Zündaussetzer Zylinder 3
+P0304;Zündaussetzer Zylinder 4
+P0305;Zündaussetzer Zylinder 5
+P0306;Zündaussetzer Zylinder 6
+P0307;Zündaussetzer Zylinder 7
+P0308;Zündaussetzer Zylinder 8
+P0313;Zündaussetzer bei niedrigem Tankinhalt
+P0314;Zündaussetzer, Zylinder unbekannt
+P0320;Drehzahlgeber (Zündung): Stromkreis
+P0321;Drehzahlgeber (Zündung): Messbereich/Funktion
+P0322;Drehzahlgeber (Zündung): kein Signal
+P0325;Klopfsensor 1 Bank 1: Stromkreis
+P0326;Klopfsensor 1 Bank 1: Messbereich/Funktion
+P0327;Klopfsensor 1 Bank 1: Signal zu niedrig
+P0328;Klopfsensor 1 Bank 1: Signal zu hoch
+P0330;Klopfsensor 2 Bank 2: Stromkreis
+P0332;Klopfsensor 2 Bank 2: Signal zu niedrig
+P0333;Klopfsensor 2 Bank 2: Signal zu hoch
+P0335;Kurbelwellensensor A: Stromkreis
+P0336;Kurbelwellensensor A: Messbereich/Funktion
+P0337;Kurbelwellensensor A: Signal zu niedrig
+P0338;Kurbelwellensensor A: Signal zu hoch
+P0339;Kurbelwellensensor A: Signal unterbrochen
+P0340;Nockenwellensensor A Bank 1: Stromkreis
+P0341;Nockenwellensensor A Bank 1: Messbereich/Funktion
+P0342;Nockenwellensensor A Bank 1: Signal zu niedrig
+P0343;Nockenwellensensor A Bank 1: Signal zu hoch
+P0344;Nockenwellensensor A Bank 1: Signal unterbrochen
+P0345;Nockenwellensensor A Bank 2: Stromkreis
+P0350;Zündspule: Stromkreis
+P0351;Zündspule A (Zylinder 1): Stromkreis
+P0352;Zündspule B (Zylinder 2): Stromkreis
+P0353;Zündspule C (Zylinder 3): Stromkreis
+P0354;Zündspule D (Zylinder 4): Stromkreis
+P0355;Zündspule E (Zylinder 5): Stromkreis
+P0356;Zündspule F (Zylinder 6): Stromkreis
+P0365;Nockenwellensensor B Bank 1: Stromkreis
+P0366;Nockenwellensensor B Bank 1: Messbereich/Funktion
+P0370;Zeitgeber-Bezugssignal A: Fehlfunktion
+P0380;Glühkerzen/Heizung A: Stromkreis
+P0381;Glühanzeige: Stromkreis
+P0400;Abgasrückführung: Durchfluss fehlerhaft
+P0401;Abgasrückführung: Durchfluss zu gering
+P0402;Abgasrückführung: Durchfluss zu hoch
+P0403;Abgasrückführung: Stromkreis
+P0404;Abgasrückführung: Messbereich/Funktion
+P0405;AGR-Ventilsensor A: Signal zu niedrig
+P0406;AGR-Ventilsensor A: Signal zu hoch
+P0410;Sekundärluftsystem: Fehlfunktion
+P0411;Sekundärluftsystem: falscher Durchfluss
+P0412;Sekundärluftventil A: Stromkreis
+P0418;Sekundärluftpumpenrelais A: Stromkreis
+P0420;Katalysator Bank 1: Wirkung zu gering
+P0421;Katalysator Bank 1 (Vorkat): Wirkung zu gering
+P0430;Katalysator Bank 2: Wirkung zu gering
+P0431;Katalysator Bank 2 (Vorkat): Wirkung zu gering
+P0440;Tankentlüftung: Fehlfunktion
+P0441;Tankentlüftung: falscher Spüldurchfluss
+P0442;Tankentlüftung: kleines Leck
+P0443;Tankentlüftungsventil: Stromkreis
+P0444;Tankentlüftungsventil: Stromkreis offen
+P0445;Tankentlüftungsventil: Kurzschluss
+P0446;Tankentlüftung, Belüftung: Stromkreis
+P0449;Tankentlüftung, Belüftungsventil: Stromkreis
+P0450;Tankentlüftung, Drucksensor: Stromkreis
+P0451;Tankentlüftung, Drucksensor: Messbereich/Funktion
+P0452;Tankentlüftung, Drucksensor: Signal zu niedrig
+P0453;Tankentlüftung, Drucksensor: Signal zu hoch
+P0455;Tankentlüftung: großes Leck (Tankdeckel?)
+P0456;Tankentlüftung: sehr kleines Leck
+P0457;Tankentlüftung: Leck (Tankdeckel lose)
+P0460;Tankfüllstandsgeber: Stromkreis
+P0461;Tankfüllstandsgeber: Messbereich/Funktion
+P0462;Tankfüllstandsgeber: Signal zu niedrig
+P0463;Tankfüllstandsgeber: Signal zu hoch
+P0464;Tankfüllstandsgeber: Signal unterbrochen
+P0480;Kühlerlüfter 1: Stromkreis
+P0481;Kühlerlüfter 2: Stromkreis
+P0482;Kühlerlüfter 3: Stromkreis
+P0483;Kühlerlüfter: Plausibilität
+P0491;Sekundärluftsystem Bank 1: Fehlfunktion
+P0492;Sekundärluftsystem Bank 2: Fehlfunktion
+P0500;Geschwindigkeitssignal: Fehlfunktion
+P0501;Geschwindigkeitssignal: Messbereich/Funktion
+P0502;Geschwindigkeitssignal: Signal zu niedrig
+P0503;Geschwindigkeitssignal: unterbrochen/zu hoch
+P0505;Leerlaufregelung: Fehlfunktion
+P0506;Leerlaufdrehzahl zu niedrig
+P0507;Leerlaufdrehzahl zu hoch
+P0508;Leerlaufregelung: Signal zu niedrig
+P0509;Leerlaufregelung: Signal zu hoch
+P0510;Leerlaufschalter Drosselklappe: Fehlfunktion
+P0520;Öldruckgeber/-schalter: Stromkreis
+P0521;Öldruckgeber/-schalter: Messbereich/Funktion
+P0522;Öldruckgeber/-schalter: Signal zu niedrig
+P0523;Öldruckgeber/-schalter: Signal zu hoch
+P0530;Klimaanlage, Drucksensor: Stromkreis
+P0532;Klimaanlage, Drucksensor: Signal zu niedrig
+P0533;Klimaanlage, Drucksensor: Signal zu hoch
+P0560;Bordspannung: Fehlfunktion
+P0562;Bordspannung zu niedrig
+P0563;Bordspannung zu hoch
+P0565;Tempomat Ein-Signal: Fehlfunktion
+P0571;Bremslichtschalter A: Stromkreis
+P0600;Datenbus (Steuergeräte): Fehlfunktion
+P0601;Motorsteuergerät: Speicher-Prüfsumme
+P0602;Motorsteuergerät: Programmierfehler
+P0603;Motorsteuergerät: Dauerspeicher (KAM)
+P0604;Motorsteuergerät: Arbeitsspeicher (RAM)
+P0605;Motorsteuergerät: Festspeicher (ROM)
+P0606;Motorsteuergerät: Prozessorfehler
+P0607;Steuergerät: Leistungsfehler
+P0615;Anlasserrelais: Stromkreis
+P0620;Lichtmaschine: Steuerkreis
+P0621;Lichtmaschine, Ladekontrolle: Stromkreis
+P0622;Lichtmaschine, Feldsteuerung: Stromkreis
+P0627;Kraftstoffpumpe, Ansteuerung: Stromkreis offen
+P0630;Fahrgestellnummer nicht programmiert
+P0638;Drosselklappensteller Bank 1: Messbereich/Funktion
+P0641;Sensor-Referenzspannung A: Stromkreis offen
+P0645;Klimakompressor-Relais: Stromkreis
+P0650;Motorkontrollleuchte: Stromkreis
+P0651;Sensor-Referenzspannung B: Stromkreis offen
+P0685;Hauptrelais Steuergerät: Stromkreis offen
+P0686;Hauptrelais Steuergerät: Signal zu niedrig
+P0700;Getriebesteuerung: Fehler gespeichert
+P0701;Getriebesteuerung: Messbereich/Funktion
+P0702;Getriebesteuerung: elektrischer Fehler
+P0703;Bremsschalter B: Stromkreis
+P0705;Getriebe-Wählhebelsensor: Stromkreis
+P0706;Getriebe-Wählhebelsensor: Messbereich/Funktion
+P0710;Getriebeöltemperaturfühler: Stromkreis
+P0711;Getriebeöltemperaturfühler: Messbereich/Funktion
+P0712;Getriebeöltemperaturfühler: Signal zu niedrig
+P0713;Getriebeöltemperaturfühler: Signal zu hoch
+P0715;Getriebe-Eingangsdrehzahl: Stromkreis
+P0716;Getriebe-Eingangsdrehzahl: Messbereich/Funktion
+P0717;Getriebe-Eingangsdrehzahl: kein Signal
+P0720;Getriebe-Ausgangsdrehzahl: Stromkreis
+P0721;Getriebe-Ausgangsdrehzahl: Messbereich/Funktion
+P0722;Getriebe-Ausgangsdrehzahl: kein Signal
+P0725;Motordrehzahl-Eingang (Getriebe): Stromkreis
+P0730;Falsche Übersetzung (Getriebe)
+P0731;Gang 1: falsche Übersetzung
+P0732;Gang 2: falsche Übersetzung
+P0733;Gang 3: falsche Übersetzung
+P0734;Gang 4: falsche Übersetzung
+P0735;Gang 5: falsche Übersetzung
+P0740;Wandlerkupplung: Stromkreis
+P0741;Wandlerkupplung: Funktion/klemmt offen
+P0743;Wandlerkupplung: elektrischer Fehler
+P0745;Getriebe-Druckregelventil: Stromkreis
+P0750;Schaltventil A: Stromkreis
+P0751;Schaltventil A: Funktion/klemmt
+P0755;Schaltventil B: Stromkreis
+P0756;Schaltventil B: Funktion/klemmt
+P0760;Schaltventil C: Stromkreis
+P0765;Schaltventil D: Stromkreis
+P0770;Schaltventil E: Stromkreis
+P0780;Schaltvorgang: Fehlfunktion
+P0801;Rückwärtsgangsperre: Stromkreis
+P0830;Kupplungsschalter A: Stromkreis
+P0833;Kupplungsschalter B: Stromkreis
+P0850;Park-/Neutralschalter: Stromkreis

@@ -77,6 +77,27 @@ void handleCommands() {
       case CmdType::GearCheckNo:
         vc.dismissGearCheck();
         break;
+      case CmdType::SetGoal:
+        vc.setGoal(static_cast<uint8_t>(c.i), c.f);
+        break;
+      case CmdType::SetBody:
+        vc.setBody(static_cast<uint8_t>(c.i));
+        break;
+      case CmdType::SetColdRpm:
+        vc.setColdRpm(static_cast<uint16_t>(c.i));
+        break;
+      case CmdType::SetOdo:
+        vc.setOdo(c.f);
+        break;
+      case CmdType::MaintDone:
+        vc.maintenanceDone(c.i);
+        break;
+      case CmdType::SetInterval:
+        vc.setInterval(c.i, c.f);
+        break;
+      case CmdType::ResetAvg:
+        vc.resetAverages(static_cast<uint8_t>(c.i));
+        break;
       default:
         break;
     }
@@ -140,6 +161,22 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
     if (active && o.gearMismatch && !askedBefore) {
       askedBefore = true;
       s.gearCheckSeq++;
+    }
+    put(s.goalL100, o.goalL100);
+    put(s.goalBase, o.goalBase);
+    put(s.odoKm, o.odoKm);
+    put(s.oilLeftKm, o.oilLeftKm);
+    put(s.inspLeftKm, o.inspLeftKm);
+    if (active) {
+      const PersistState& ps = vc.state();
+      s.maint.oilIntervalKm = ps.oilIntervalKm;
+      s.maint.inspIntervalKm = ps.inspIntervalKm;
+      for (int i = 0; i < cfg::TEMPO_CLASSES; i++) {
+        s.tempoKm[i] = ps.tempoKm[i];
+        s.tempoL[i] = ps.tempoL[i];
+      }
+      s.profile.body = vc.profile().body;
+      s.profile.coldRpmLimit = vc.profile().coldRpmLimit;
     }
     put(s.powerKw, o.powerKw);
     put(s.tripVmax, o.tripVmax);

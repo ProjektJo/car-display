@@ -1,14 +1,21 @@
 #include "menu.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "config.h"
+#include "core/commands.h"
+#include "ui/numpad.h"
 #include "ui/overlay.h"
+#include "ui/symbols.h"
+#include "ui/tank_dialog.h"
 #include "ui/theme.h"
+#include "ui/ui.h"
+#include "ui/ui_prefs.h"
+#include "ui/vehicle_dialog.h"
 #include "util/format.h"
 #include "util/link_text.h"
-#include "ui/vehicle_dialog.h"
 
 namespace menu {
 
@@ -17,25 +24,48 @@ namespace {
 // Maße aus der Vorschau (.mrow, Menü zweispaltig mit 12 px Abstand)
 constexpr int32_t ROW_PAD_VER = 4;
 constexpr int32_t ROW_PAD_HOR = 2;
-constexpr int32_t COL_GAP = 12;
+constexpr int32_t COL_GAP = 8;
 constexpr int32_t DIAG_VALUE_W = 172;  // rechte Spalte im Diagnose-Dialog, längere Texte brechen um
+constexpr int32_t STEP_BTN = 40;       // große − / + Tasten (U Menü)
+constexpr uint16_t COLD_RPM_MIN = 2000, COLD_RPM_MAX = 3000, COLD_RPM_STEP = 250;  // Kalt-Grenze (U Menü)
 
-enum class Shown : uint8_t { None, Menu, Diagnose };
+enum class Shown : uint8_t { None, Menu, Diagnose, Brightness, Goal, Body, Maintenance };
 Shown shown = Shown::None;
 uint32_t shownGen = 0;
+CarSnapshot snap;  // letzter Stand für Dialoge
 
-lv_obj_t* menuDiagValue = nullptr;  // Menüzeile Diagnose: "8,0 Abfr./s"
-char menuDiagShown[24] = "";
-enum DiagRow { ROW_VEHICLE, ROW_ADAPTER, ROW_PROTOCOL, ROW_VIN, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_BODY, ROW_COUNT };
+// ---------- Menü-Zeilen ----------
+enum MenuRow {
+  M_BRIGHT, M_GOAL, M_BODY, M_MAINT, M_DIAG, M_REFUEL,      // linke Spalte
+  M_TILES, M_TIPS, M_COLD, M_SPRINT, M_ENDTRIP, M_INFO,      // rechte Spalte
+  M_COUNT
+};
+const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeugart", "Wartung", "Diagnose", "Getankt",
+                                        "Kacheln zurücksetzen", "Spartipps", "Kalt-Grenze", "Auto-Sprint", "Fahrt beenden",
+                                        "Info"};
+lv_obj_t* menuValues[M_COUNT] = {};
+char menuShown[M_COUNT][32] = {};
+
+enum DiagRow { ROW_VEHICLE, ROW_ADAPTER, ROW_PROTOCOL, ROW_VIN, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_BODY, ROW_RESET, ROW_COUNT };
 lv_obj_t* diagValues[ROW_COUNT] = {};
 char diagShown[ROW_COUNT][48] = {};
+
+// Dialog-Inhalte, die sich live ändern
+lv_obj_t* dlgValue[4] = {};
+char dlgShown[4][48] = {};
 
 bool stillOpen(Shown what) { return shown == what && overlay::isOpen() && overlay::generation() == shownGen; }
 
 void setText(lv_obj_t* l, char* shownText, size_t size, const char* text) {
-  if (strcmp(shownText, text) == 0) return;
+  if (!l || strcmp(shownText, text) == 0) return;
   snprintf(shownText, size, "%s", text);
   lv_label_set_text(l, text);
+}
+
+void pressable(lv_obj_t* o) {
+  lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_color(o, theme::c(theme::LINE), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_STATE_PRESSED);
 }
 
 // Zeile mit Text links und Wert rechts (muted), Linie darunter
@@ -53,14 +83,76 @@ lv_obj_t* row(lv_obj_t* parent, const char* key, lv_obj_t** valueOut, int32_t wi
   lv_obj_set_flex_align(r, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
   theme::label(r, &font_m12, false, key);
-  *valueOut = theme::label(r, &font_m12, true, "");
+  *valueOut = theme::label(r, &font_small, true, "");
+  lv_obj_set_style_pad_top(*valueOut, 2, 0);
   return r;
 }
 
-void onDone(lv_event_t*) { overlay::close(); }
-void onBackToMenu(lv_event_t*) { open(); }
-void onDiagRow(lv_event_t*) { openDiagnose(); }
-void onVehicleRow(lv_event_t*) { vehicledlg::openChooser(); }
+lv_obj_t* button(lv_obj_t* parent, const char* text, int32_t w, int32_t h, lv_event_cb_t cb, void* user = nullptr,
+                 bool accent = false) {
+  lv_obj_t* b = lv_obj_create(parent);
+  lv_obj_remove_style_all(b);
+  lv_obj_set_size(b, w, h);
+  lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_color(b, theme::c(theme::SURFACE), 0);
+  lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(b, theme::c(theme::LINE), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(b, theme::c(accent ? theme::ACCENT : theme::LINE), 0);
+  lv_obj_set_style_border_width(b, 1, 0);
+  lv_obj_set_style_radius(b, theme::RADIUS_TILE, 0);
+  lv_obj_t* l = theme::label(b, &font_m12, false, text);
+  if (accent) lv_obj_set_style_text_color(l, theme::c(theme::ACCENT), 0);
+  lv_obj_center(l);
+  if (cb) {
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_LONG_PRESSED_REPEAT, user);
+  }
+  return b;
+}
+
+lv_obj_t* chip(lv_obj_t* parent, const char* text, bool on, bool enabled, lv_event_cb_t cb, intptr_t user) {
+  lv_obj_t* c = lv_obj_create(parent);
+  lv_obj_remove_style_all(c);
+  lv_obj_set_size(c, LV_SIZE_CONTENT, 22);
+  lv_obj_set_style_radius(c, 11, 0);
+  lv_obj_set_style_border_width(c, 1, 0);
+  lv_obj_set_style_border_color(c, theme::c(on ? theme::ACCENT : theme::LINE), 0);
+  lv_obj_set_style_bg_color(c, theme::c(on ? theme::ACCENT : theme::SURFACE), 0);
+  lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_hor(c, 10, 0);
+  lv_obj_t* l = theme::label(c, &font_m12, false, text);
+  lv_obj_set_style_text_color(l, theme::c(on ? theme::BG : (enabled ? theme::TEXT : theme::MUTED)), 0);
+  lv_obj_center(l);
+  if (enabled) {
+    lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(c, cb, LV_EVENT_CLICKED, reinterpret_cast<void*>(user));
+  }
+  return c;
+}
+
+lv_obj_t* flexRow(lv_obj_t* parent, int32_t gap) {
+  lv_obj_t* r = lv_obj_create(parent);
+  lv_obj_remove_style_all(r);
+  lv_obj_set_size(r, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(r, gap, 0);
+  lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(r, LV_OBJ_FLAG_CLICKABLE);
+  return r;
+}
+
+lv_obj_t* subDialog(const char* title, Shown what) {
+  lv_obj_t* card = overlay::open(title, true, theme::DIALOG_INSET_SUB);
+  shown = what;
+  shownGen = overlay::generation();
+  overlay::addDoneButton(card, [](lv_event_t*) { open(); });
+  lv_obj_set_style_pad_row(card, 8, 0);
+  memset(dlgShown, 0, sizeof(dlgShown));
+  for (auto& v : dlgValue) v = nullptr;
+  return card;
+}
 
 void rateText(const CarSnapshot& s, char* out, size_t size, const char* unit) {
   if (std::isnan(s.link.queriesPerS)) {
@@ -72,34 +164,333 @@ void rateText(const CarSnapshot& s, char* out, size_t size, const char* unit) {
   snprintf(out, size, "%s %s", num, unit);
 }
 
+void kmText(char* out, size_t size, float km) {
+  char n[16];
+  fmt::number(n, sizeof(n), km, 0);
+  snprintf(out, size, std::isnan(km) ? "%s" : "%s km", n);
+}
+
+// ---------- Helligkeit (U Menü) ----------
+void openBrightness();
+
+void onBrightMode(lv_event_t* e) {
+  uiprefs::get().dayNight = static_cast<uint8_t>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  uiprefs::save();
+  ui::applyBrightness();
+  openBrightness();
+}
+
+void onBrightStep(lv_event_t* e) {
+  const int code = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));  // ±1 Tag, ±2 Nacht
+  UiSettings& u = uiprefs::get();
+  if (code == 1 || code == -1) {
+    const int v = u.brightDay + code * cfg::BRIGHT_DAY_STEP;
+    u.brightDay = static_cast<uint8_t>(v < cfg::BRIGHT_DAY_MIN ? cfg::BRIGHT_DAY_MIN : (v > cfg::BRIGHT_DAY_MAX ? cfg::BRIGHT_DAY_MAX : v));
+  } else {
+    const int v = u.brightNight + (code / 2) * cfg::BRIGHT_NIGHT_STEP;
+    u.brightNight =
+        static_cast<uint8_t>(v < cfg::BRIGHT_NIGHT_MIN ? cfg::BRIGHT_NIGHT_MIN : (v > cfg::BRIGHT_NIGHT_MAX ? cfg::BRIGHT_NIGHT_MAX : v));
+  }
+  uiprefs::save();
+  ui::applyBrightness();
+}
+
+void stepRow(lv_obj_t* card, const char* key, int idx, int code) {
+  lv_obj_t* r = flexRow(card, 8);
+  lv_obj_t* k = theme::label(r, &font_m14, false, key);
+  lv_obj_set_flex_grow(k, 1);
+  button(r, "\xE2\x80\x93", STEP_BTN, STEP_BTN - 8, onBrightStep, reinterpret_cast<void*>(static_cast<intptr_t>(-code)));
+  dlgValue[idx] = theme::label(r, &font_m20, false, "");
+  lv_obj_set_width(dlgValue[idx], 64);
+  lv_obj_set_style_text_align(dlgValue[idx], LV_TEXT_ALIGN_CENTER, 0);
+  button(r, "+", STEP_BTN, STEP_BTN - 8, onBrightStep, reinterpret_cast<void*>(static_cast<intptr_t>(code)));
+}
+
+void openBrightness() {
+  lv_obj_t* card = subDialog("Helligkeit", Shown::Brightness);
+  const UiSettings& u = uiprefs::get();
+  lv_obj_t* chips = flexRow(card, 6);
+  chip(chips, "Tag", u.dayNight == 0, true, onBrightMode, 0);
+  chip(chips, "Nacht", u.dayNight == 1, true, onBrightMode, 1);
+  chip(chips, "Auto (GPS)", u.dayNight == 2, snap.hasGps, onBrightMode, 2);  // ohne Uhr kein Auto (A2 Nr. 5)
+  stepRow(card, "Tag", 0, 1);
+  stepRow(card, "Nacht", 1, 2);
+  lv_obj_t* note = theme::label(card, &font_small, true,
+                                snap.hasGps ? "Auto wechselt mit dem Sonnenstand am aktuellen Ort."
+                                            : "Auto (Sonnenstand) gibt es nur mit GPS-Modul.");
+  lv_obj_set_width(note, LV_PCT(100));
+  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+}
+
+// ---------- Spar-Ziel (U Menü, Z 13) ----------
+void openGoal();
+
+void sendGoal() { ui::sendGoal(); }
+
+void onGoalMode(lv_event_t* e) {
+  uiprefs::get().goalMode = static_cast<uint8_t>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  uiprefs::save();
+  sendGoal();
+  openGoal();
+}
+
+void onGoalStep(lv_event_t* e) {
+  const int tenths = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  UiSettings& u = uiprefs::get();
+  // − oder + bei Auto macht daraus ein festes Ziel (U Menü)
+  float base = u.goalFix;
+  if (u.goalMode == 1) {
+    const float g = snap.goalL100.get(snap.now);
+    base = std::isnan(g) ? cfg::GOAL_FIX_DEFAULT : g;
+  }
+  float v = std::round(base * 10.0f + tenths) / 10.0f;
+  v = v < cfg::GOAL_FIX_MIN ? cfg::GOAL_FIX_MIN : (v > cfg::GOAL_FIX_MAX ? cfg::GOAL_FIX_MAX : v);
+  const bool wasAuto = u.goalMode != 2;
+  u.goalFix = v;
+  u.goalMode = 2;
+  uiprefs::save();
+  sendGoal();
+  if (wasAuto) openGoal();
+}
+
+void openGoal() {
+  lv_obj_t* card = subDialog("Spar-Ziel", Shown::Goal);
+  const UiSettings& u = uiprefs::get();
+  lv_obj_t* chips = flexRow(card, 6);
+  chip(chips, "Aus", u.goalMode == 0, true, onGoalMode, 0);
+  chip(chips, "Auto", u.goalMode == 1, true, onGoalMode, 1);
+  chip(chips, "Fest", u.goalMode == 2, true, onGoalMode, 2);
+  if (u.goalMode != 0) {
+    lv_obj_t* r = flexRow(card, 6);
+    button(r, "\xE2\x80\x93" "0,5", 46, 32, onGoalStep, reinterpret_cast<void*>(static_cast<intptr_t>(-5)));
+    button(r, "\xE2\x80\x93", 36, 32, onGoalStep, reinterpret_cast<void*>(static_cast<intptr_t>(-1)));
+    dlgValue[0] = theme::label(r, &font_m20, false, "");
+    lv_obj_set_width(dlgValue[0], 60);
+    lv_obj_set_style_text_align(dlgValue[0], LV_TEXT_ALIGN_CENTER, 0);
+    button(r, "+", 36, 32, onGoalStep, reinterpret_cast<void*>(static_cast<intptr_t>(1)));
+    button(r, "+0,5", 46, 32, onGoalStep, reinterpret_cast<void*>(static_cast<intptr_t>(5)));
+  }
+  dlgValue[1] = theme::label(card, &font_m12, true, "");
+  lv_obj_set_width(dlgValue[1], LV_PCT(100));
+  lv_label_set_long_mode(dlgValue[1], LV_LABEL_LONG_WRAP);
+}
+
+// ---------- Fahrzeugart (A6 Tabelle) ----------
+void onBody(lv_event_t* e) {
+  Command c{CmdType::SetBody};
+  c.i = static_cast<int32_t>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  commands::toCalc(c);
+  open();
+}
+
+void openBody() {
+  lv_obj_t* card = subDialog("Fahrzeugart", Shown::Body);
+  lv_obj_set_style_pad_row(card, 0, 0);
+  lv_obj_set_style_margin_bottom(lv_obj_get_child(card, 0), 6, 0);
+  for (uint8_t i = 0; i < cfg::BODY_TYPE_COUNT; i++) {
+    lv_obj_t* v = nullptr;
+    lv_obj_t* r = row(card, cfg::BODY_TYPES[i].name, &v, LV_PCT(100));
+    pressable(r);
+    lv_obj_add_event_cb(r, onBody, LV_EVENT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(i)));
+    char t[16];
+    fmt::number(t, sizeof(t), cfg::BODY_TYPES[i].massKg, 0);
+    char m[24];
+    snprintf(m, sizeof(m), "%s kg", t);
+    lv_label_set_text(v, m);
+    if (i == snap.profile.body) lv_obj_set_style_text_color(lv_obj_get_child(r, 0), theme::c(theme::ACCENT), 0);
+  }
+  lv_obj_t* note = theme::label(card, &font_small, true,
+                                "Gewicht mit Fahrer und Luftwiderstand für Leistung, Bremsenergie und Eco-Score.");
+  lv_obj_set_width(note, LV_PCT(100));
+  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_margin_top(note, 4, 0);
+}
+
+// ---------- Wartung (Z 9) ----------
+void openMaintenance();
+void maintBack() { openMaintenance(); }
+
+void onOdo(lv_event_t*) {
+  numpad::open("Tachostand eintragen", "km", snap.odoKm.get(snap.now), 7,
+               [](float km) {
+                 Command c{CmdType::SetOdo};
+                 c.f = km;
+                 commands::toCalc(c);
+               },
+               maintBack);
+}
+
+void onMaintDone(lv_event_t* e) {
+  Command c{CmdType::MaintDone};
+  c.i = static_cast<int32_t>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  commands::toCalc(c);
+}
+
+int intervalWhich = 0;
+void onInterval(lv_event_t* e) {
+  intervalWhich = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  numpad::open(intervalWhich == 0 ? "Ölwechsel alle" : "Inspektion alle", "km",
+               intervalWhich == 0 ? snap.maint.oilIntervalKm : snap.maint.inspIntervalKm, 6,
+               [](float km) {
+                 Command c{CmdType::SetInterval};
+                 c.i = intervalWhich;
+                 c.f = km;
+                 commands::toCalc(c);
+               },
+               maintBack);
+}
+
+void maintRow(lv_obj_t* card, const char* key, int which) {
+  lv_obj_t* r = flexRow(card, 6);
+  lv_obj_t* col = lv_obj_create(r);
+  lv_obj_remove_style_all(col);
+  lv_obj_set_size(col, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_grow(col, 1);
+  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+  pressable(col);
+  lv_obj_add_event_cb(col, onInterval, LV_EVENT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(which)));
+  theme::label(col, &font_m14, false, key);
+  dlgValue[1 + which] = theme::label(col, &font_m12, true, "");
+  button(r, "Erledigt", 72, 30, onMaintDone, reinterpret_cast<void*>(static_cast<intptr_t>(which)), true);
+}
+
+void openMaintenance() {
+  lv_obj_t* card = subDialog("Wartung", Shown::Maintenance);
+  lv_obj_t* v = nullptr;
+  lv_obj_t* r = row(card, "Tachostand", &v, LV_PCT(100));
+  pressable(r);
+  lv_obj_add_event_cb(r, onOdo, LV_EVENT_CLICKED, nullptr);
+  lv_obj_set_style_text_color(v, theme::c(theme::ACCENT), 0);
+  dlgValue[0] = v;
+  maintRow(card, "Ölwechsel", 0);
+  maintRow(card, "Inspektion", 1);
+  lv_obj_t* note = theme::label(card, &font_small, true,
+                                "Tippen auf Ölwechsel bzw. Inspektion ändert das Intervall. Die km zählt das Display selbst.");
+  lv_obj_set_width(note, LV_PCT(100));
+  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+}
+
+void maintText(char* out, size_t size, float left, float interval) {
+  char a[16], b[16];
+  fmt::number(a, sizeof(a), std::fabs(left), 0);
+  fmt::number(b, sizeof(b), interval, 0);
+  if (std::isnan(left))
+    snprintf(out, size, "alle %s km", b);
+  else if (left <= 0)
+    snprintf(out, size, "überfällig seit %s km " "\xC2\xB7" " alle %s km", a, b);
+  else
+    snprintf(out, size, "fällig in %s km " "\xC2\xB7" " alle %s km", a, b);
+}
+
+// ---------- Mittelwerte zurücksetzen (Diagnose) ----------
+void onResetAvg(lv_event_t* e) {
+  Command c{CmdType::ResetAvg};
+  c.i = static_cast<int32_t>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  commands::toCalc(c);
+  openDiagnose();
+}
+
+void openResetAvg() {
+  lv_obj_t* card = overlay::open("Mittelwerte zurücksetzen", true, theme::DIALOG_INSET_SUB);
+  shown = Shown::None;
+  overlay::addDoneButton(card, [](lv_event_t*) { openDiagnose(); });
+  lv_obj_set_style_pad_row(card, 8, 0);
+  lv_obj_t* r = flexRow(card, 6);
+  lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW_WRAP);
+  lv_obj_set_style_pad_row(r, 6, 0);
+  static const char* const NAMES[] = {SYM_AVG " 1 km", SYM_AVG " 10 km", SYM_AVG " 100 km", SYM_AVG " Tank", "Alle"};
+  static const intptr_t MASKS[] = {1, 2, 4, 8, 15};
+  for (int i = 0; i < 5; i++) button(r, NAMES[i], 84, 32, onResetAvg, reinterpret_cast<void*>(MASKS[i]));
+  lv_obj_t* note = theme::label(card, &font_small, true,
+                                "Setzt nur den gewählten Schnitt auf null. Fahrten, Tankfüllungen und Kalibrierung bleiben.");
+  lv_obj_set_width(note, LV_PCT(100));
+  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+}
+
+// ---------- Menü-Aktionen ----------
+void onMenuRow(lv_event_t* e) {
+  const int r = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  UiSettings& u = uiprefs::get();
+  switch (r) {
+    case M_BRIGHT: openBrightness(); break;
+    case M_GOAL: openGoal(); break;
+    case M_BODY: openBody(); break;
+    case M_MAINT: openMaintenance(); break;
+    case M_DIAG: openDiagnose(); break;
+    case M_REFUEL: tankdlg::openManual(snap); break;
+    case M_TILES: {
+      const UiSettings def;
+      memcpy(u.tiles, def.tiles, sizeof(u.tiles));
+      uiprefs::save();
+      overlay::close();
+      break;
+    }
+    case M_TIPS:
+      u.tips = !u.tips;
+      uiprefs::save();
+      break;
+    case M_COLD: {
+      // 2000 … 3000 in 250er Schritten, danach wieder von vorn (U Menü)
+      uint16_t v = snap.profile.coldRpmLimit + COLD_RPM_STEP;
+      if (v > COLD_RPM_MAX || v < COLD_RPM_MIN) v = COLD_RPM_MIN;
+      Command c{CmdType::SetColdRpm};
+      c.i = v;
+      commands::toCalc(c);
+      break;
+    }
+    case M_SPRINT:
+      u.autoSprint = !u.autoSprint;
+      uiprefs::save();
+      break;
+    case M_ENDTRIP: {
+      Command c{CmdType::EndTrip};
+      commands::toCalc(c);
+      overlay::close();
+      break;
+    }
+    case M_INFO:
+      overlay::close();
+      ui::showInfoPage();
+      break;
+    default: break;
+  }
+}
+
+void onDone(lv_event_t*) { overlay::close(); }
+void onBackToMenu(lv_event_t*) { open(); }
+void onVehicleRow(lv_event_t*) { vehicledlg::openChooser(); }
+void onResetRow(lv_event_t*) { openResetAvg(); }
+
 }  // namespace
 
 void open() {
   lv_obj_t* card = overlay::open("Menü");
   shown = Shown::Menu;
   shownGen = overlay::generation();
+  lv_obj_set_style_pad_hor(card, 6, 0);  // zwei Spalten brauchen die Breite
   overlay::addDoneButton(card, onDone);
-  // Daneben tippen schließt ebenfalls
-  lv_obj_add_event_cb(lv_obj_get_parent(card), onDone, LV_EVENT_CLICKED, nullptr);
+  memset(menuShown, 0, sizeof(menuShown));
 
-  // Zweispaltig wie in der Vorschau; Etappe 2 hat nur die Zeile Diagnose
+  // Zweispaltig wie in der Vorschau
   lv_obj_t* grid = lv_obj_create(card);
   lv_obj_remove_style_all(grid);
   lv_obj_set_width(grid, LV_PCT(100));
   lv_obj_set_height(grid, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
+  lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_COLUMN_WRAP);
   lv_obj_set_style_pad_column(grid, COL_GAP, 0);
   lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_update_layout(card);
   const int32_t colW = (lv_obj_get_content_width(card) - COL_GAP) / 2;
-  menuDiagShown[0] = '\0';
-  lv_obj_t* r = row(grid, "Diagnose", &menuDiagValue, colW);
-  lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_color(r, theme::c(theme::LINE), LV_STATE_PRESSED);
-  lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_STATE_PRESSED);
-  lv_obj_add_event_cb(r, onDiagRow, LV_EVENT_CLICKED, nullptr);
-
-  theme::label(card, &font_m12, true, "Die übrigen Einträge folgen in Etappe 7.");
+  // Spalten nebeneinander: links die ersten sechs Zeilen, rechts die übrigen
+  lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
+  for (int i = 0; i < M_COUNT / 2; i++) {
+    for (int col = 0; col < 2; col++) {
+      const int r = col * (M_COUNT / 2) + i;
+      lv_obj_t* rr = row(grid, MENU_KEYS[r], &menuValues[r], colW);
+      pressable(rr);
+      lv_obj_add_event_cb(rr, onMenuRow, LV_EVENT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(r)));
+    }
+  }
 }
 
 void openDiagnose() {
@@ -109,8 +500,8 @@ void openDiagnose() {
   overlay::addDoneButton(card, onBackToMenu);
   memset(diagShown, 0, sizeof(diagShown));
 
-  static const char* const KEYS[ROW_COUNT] = {"Fahrzeug", "Adapter", "Protokoll", "VIN", "Abfragen", "Unterstützte PIDs", "Verbrauch aus",
-                                              "Fahrzeugart"};
+  static const char* const KEYS[ROW_COUNT] = {"Fahrzeug", "Adapter", "Protokoll", "VIN", "Abfragen", "Unterstützte PIDs",
+                                              "Verbrauch aus", "Fahrzeugart", "Mittelwerte"};
   lv_obj_set_style_pad_row(card, 0, 0);
   lv_obj_t* title = lv_obj_get_child(card, 0);
   lv_obj_set_style_margin_bottom(title, 10, 0);
@@ -122,26 +513,98 @@ void openDiagnose() {
     lv_obj_set_width(diagValues[i], DIAG_VALUE_W);
     lv_obj_set_style_text_align(diagValues[i], LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_long_mode(diagValues[i], LV_LABEL_LONG_WRAP);
-    if (i == ROW_VEHICLE) {
-      // Profil wechseln oder neu anlegen (U Menü: "Fahrzeugprofil wechseln/neu" im Diagnose-Dialog)
-      lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_set_style_bg_color(r, theme::c(theme::LINE), LV_STATE_PRESSED);
-      lv_obj_set_style_bg_opa(r, LV_OPA_COVER, LV_STATE_PRESSED);
-      lv_obj_add_event_cb(r, onVehicleRow, LV_EVENT_CLICKED, nullptr);
+    if (i == ROW_VEHICLE || i == ROW_RESET) {
+      // Profil wechseln oder neu anlegen; Mittelwerte zurücksetzen (U Menü: Seltenes im Diagnose-Dialog)
+      pressable(r);
+      lv_obj_add_event_cb(r, i == ROW_VEHICLE ? onVehicleRow : onResetRow, LV_EVENT_CLICKED, nullptr);
       lv_obj_set_style_text_color(diagValues[i], theme::c(theme::ACCENT), 0);
     }
   }
 }
 
 void update(const CarSnapshot& s) {
-  char text[48];
+  snap = s;
+  char text[64];
   if (stillOpen(Shown::Menu)) {
+    const UiSettings& u = uiprefs::get();
+    char n[16];
+    // Helligkeit
+    if (u.dayNight == 2)
+      snprintf(text, sizeof(text), "Auto");
+    else
+      snprintf(text, sizeof(text), "%s %u %%", u.dayNight ? "Nacht" : "Tag", (unsigned)(u.dayNight ? u.brightNight : u.brightDay));
+    setText(menuValues[M_BRIGHT], menuShown[M_BRIGHT], sizeof(menuShown[0]), text);
+    // Spar-Ziel
+    fmt::number(n, sizeof(n), s.goalL100.get(s.now), 1);
+    if (u.goalMode == 0) snprintf(text, sizeof(text), "aus");
+    else snprintf(text, sizeof(text), "%s%s", u.goalMode == 1 ? "auto " : "", n);
+    setText(menuValues[M_GOAL], menuShown[M_GOAL], sizeof(menuShown[0]), text);
+    setText(menuValues[M_BODY], menuShown[M_BODY], sizeof(menuShown[0]),
+            cfg::BODY_TYPES[s.profile.body < cfg::BODY_TYPE_COUNT ? s.profile.body : 0].name);
+    // Wartung: nächster Termin
+    const float oil = s.oilLeftKm.get(s.now), insp = s.inspLeftKm.get(s.now);
+    if (std::isnan(oil)) {
+      snprintf(text, sizeof(text), "eintragen");
+    } else {
+      const bool oilFirst = std::isnan(insp) || oil <= insp;
+      fmt::number(n, sizeof(n), oilFirst ? oil : insp, 0);
+      snprintf(text, sizeof(text), "%s in %s km", oilFirst ? "Öl" : "Insp.", n);
+    }
+    setText(menuValues[M_MAINT], menuShown[M_MAINT], sizeof(menuShown[0]), text);
+    const bool maintWarn = (!std::isnan(oil) && oil < cfg::MAINT_WARN_KM) || (!std::isnan(insp) && insp < cfg::MAINT_WARN_KM);
+    lv_obj_set_style_text_color(menuValues[M_MAINT], theme::c(maintWarn ? theme::WARN : theme::MUTED), 0);
     rateText(s, text, sizeof(text), "Abfr./s");
-    setText(menuDiagValue, menuDiagShown, sizeof(menuDiagShown), text);
+    setText(menuValues[M_DIAG], menuShown[M_DIAG], sizeof(menuShown[0]), text);
+    setText(menuValues[M_REFUEL], menuShown[M_REFUEL], sizeof(menuShown[0]), "von Hand");
+    setText(menuValues[M_TIPS], menuShown[M_TIPS], sizeof(menuShown[0]), u.tips ? "an" : "aus");
+    fmt::number(n, sizeof(n), s.profile.coldRpmLimit, 0);
+    setText(menuValues[M_COLD], menuShown[M_COLD], sizeof(menuShown[0]), n);
+    setText(menuValues[M_SPRINT], menuShown[M_SPRINT], sizeof(menuShown[0]), u.autoSprint ? "an" : "aus");
+    return;
+  }
+  if (stillOpen(Shown::Brightness)) {
+    const UiSettings& u = uiprefs::get();
+    snprintf(text, sizeof(text), "%u %%", (unsigned)u.brightDay);
+    setText(dlgValue[0], dlgShown[0], sizeof(dlgShown[0]), text);
+    snprintf(text, sizeof(text), "%u %%", (unsigned)u.brightNight);
+    setText(dlgValue[1], dlgShown[1], sizeof(dlgShown[1]), text);
+    return;
+  }
+  if (stillOpen(Shown::Goal)) {
+    const UiSettings& u = uiprefs::get();
+    fmt::number(text, sizeof(text), s.goalL100.get(s.now), 1);
+    setText(dlgValue[0], dlgShown[0], sizeof(dlgShown[0]), text);
+    if (u.goalMode == 1) {
+      char a[12], b[12];
+      fmt::number(a, sizeof(a), s.goalBase.get(s.now), 1);
+      fmt::number(b, sizeof(b), s.goalL100.get(s.now), 1);
+      snprintf(text, sizeof(text), "%s " "\xE2\x86\x92" " %s (0,5 l unter dem Schnitt der letzten Tankfüllungen)", a, b);
+    } else if (u.goalMode == 2) {
+      snprintf(text, sizeof(text), "Festes Ziel von 3,0 bis 7,0 l/100 km. Gilt, bis du es änderst.");
+    } else {
+      snprintf(text, sizeof(text), "Ohne Ziel ist der Tank-Schnitt der Bezug in der Eco-Kurve.");
+    }
+    setText(dlgValue[1], dlgShown[1], sizeof(dlgShown[1]), text);
+    return;
+  }
+  if (stillOpen(Shown::Maintenance)) {
+    const float odo = s.odoKm.get(s.now);
+    if (std::isnan(odo)) snprintf(text, sizeof(text), "eintragen");
+    else kmText(text, sizeof(text), odo);
+    setText(dlgValue[0], dlgShown[0], sizeof(dlgShown[0]), text);
+    const float left[2] = {s.oilLeftKm.get(s.now), s.inspLeftKm.get(s.now)};
+    const float iv[2] = {s.maint.oilIntervalKm, s.maint.inspIntervalKm};
+    for (int i = 0; i < 2; i++) {
+      maintText(text, sizeof(text), left[i], iv[i]);
+      setText(dlgValue[1 + i], dlgShown[1 + i], sizeof(dlgShown[0]), text);
+      if (dlgValue[1 + i])
+        lv_obj_set_style_text_color(dlgValue[1 + i],
+                                    theme::c(!std::isnan(left[i]) && left[i] < cfg::MAINT_WARN_KM ? theme::WARN : theme::MUTED), 0);
+    }
     return;
   }
   if (!stillOpen(Shown::Diagnose)) {
-    shown = Shown::None;
+    if (!overlay::isOpen()) shown = Shown::None;
     return;
   }
   const LinkInfo& li = s.link;
@@ -170,7 +633,7 @@ void update(const CarSnapshot& s) {
   else
     snprintf(text, sizeof(text), "%s", fmt::NO_VALUE);
   setText(diagValues[ROW_FUEL], diagShown[ROW_FUEL], sizeof(diagShown[0]), text);
-  // Fahrzeugart aus dem Profil (im Menü wählbar ab Etappe 7)
+  // Fahrzeugart aus dem Profil (Menü → Fahrzeugart)
   const cfg::BodyType& body = cfg::BODY_TYPES[s.profile.body < cfg::BODY_TYPE_COUNT ? s.profile.body : 0];
   char mass[12];
   fmt::number(mass, sizeof(mass), body.massKg, 0);
@@ -179,6 +642,7 @@ void update(const CarSnapshot& s) {
   else
     snprintf(text, sizeof(text), "%s", fmt::NO_VALUE);
   setText(diagValues[ROW_BODY], diagShown[ROW_BODY], sizeof(diagShown[0]), text);
+  setText(diagValues[ROW_RESET], diagShown[ROW_RESET], sizeof(diagShown[0]), "zurücksetzen");
 }
 
 }  // namespace menu
