@@ -187,7 +187,9 @@ class SportPage : public Page {
     fmt::number(b, sizeof(b), std::isnan(kw) ? NAN : kw * cfg::KW_TO_PS, 0);
     snprintf(t, sizeof(t), std::isnan(kw) ? "%s" : "%s kW " SYM_DOT " %s PS", a, b);
     setBar(0, t, std::isnan(kw) ? 0 : kw / (s.profile.powerKw > 0 ? s.profile.powerKw : 55), theme::ACCENT);
-    const float acc = s.accel.get(s.now);
+    const float accRaw = s.accel.get(s.now);
+    // auf 0,1 gerundet, damit kein "–0,0" erscheint
+    const float acc = std::isnan(accRaw) ? NAN : std::round(accRaw * 10.0f) / 10.0f + 0.0f;
     fmt::number(a, sizeof(a), std::isnan(acc) ? NAN : std::fabs(acc), 1);
     if (std::isnan(acc))
       snprintf(t, sizeof(t), "%s", a);

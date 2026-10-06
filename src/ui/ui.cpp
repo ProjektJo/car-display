@@ -10,7 +10,9 @@
 #include "hw/touch.h"
 #include "ui/eco_popups.h"
 #include "ui/history.h"
+#include "calc/perf.h"
 #include "ui/live.h"
+#include "ui/values.h"
 #include "ui/tank_dialog.h"
 #include "ui/ui_prefs.h"
 #include "ui/menu.h"
@@ -35,6 +37,9 @@ static_assert(PAGE_COUNT <= statusbar::MAX_PAGES, "zu viele Seiten für die Stat
 
 lv_obj_t* containers[PAGE_COUNT];
 int current = 0;  // Index in PAGES; Startseite ist Eco
+constexpr int SPRINT_PAGE = 2;  // Index der Sprint-Seite in PAGES
+perf::AutoSprint autoSprint;     // Auto-Sprint (A10): zur Sprint-Seite und zurück
+int beforeSprint = -1;
 CarSnapshot snap;
 
 #ifdef SIMULATE_OBD
@@ -73,8 +78,10 @@ void showPage(int index) {
   PAGES[current]->update(snap);
 }
 
-// Nächste bzw. vorige sichtbare Seite, Endlosschleife (U Bedienung)
+// Nächste bzw. vorige sichtbare Seite, Endlosschleife (U Bedienung). Ein Seitenwechsel von Hand
+// hebt den Rücksprung des Auto-Sprints auf (A10).
 void stepPage(int dir) {
+  autoSprint.cancel();
   int i = current;
   for (int n = 0; n < PAGE_COUNT; n++) {
     i = (i + dir + PAGE_COUNT) % PAGE_COUNT;
@@ -236,6 +243,22 @@ void task(void*) {
       menu::update(snap);
       vehicledlg::update(snap);  // "Welches Fahrzeug?", wenn kein Profil eindeutig passt
       if (!PAGES[current]->available(snap)) stepPage(+1);  // z. B. Sensor fehlt plötzlich
+      // Auto-Sprint (A10). ANNAHME: bis zum Menü (Etappe 7) immer an
+      switch (autoSprint.update(snap.now, true, snap.sprint.launchSeq, snap.sprint.state, snap.sprint.doneAtMs,
+                                values::value(values::Key::Pedal, snap), overlay::isOpen())) {
+        case perf::AutoSprint::Action::ShowSprint:
+          beforeSprint = current;
+          startscreen::hide();
+          showPage(SPRINT_PAGE);
+          Serial.println("Auto-Sprint: Sprint-Seite");
+          break;
+        case perf::AutoSprint::Action::Return:
+          if (beforeSprint >= 0 && PAGES[beforeSprint]->available(snap)) showPage(beforeSprint);
+          Serial.println("Auto-Sprint: zurück");
+          break;
+        case perf::AutoSprint::Action::None:
+          break;
+      }
       history::tick(snap);
       live::tick(snap);
       for (Page* p : PAGES) p->tick(snap);
