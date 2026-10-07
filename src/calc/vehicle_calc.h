@@ -127,6 +127,7 @@ class VehicleCalc {
 
   // Eco
   float pedalClosed_ = NAN;      // kleinster Pedalwert seit dem Laden
+  float pedalMax_ = NAN;         // größter Pedalwert seit dem Laden (Sprint: Vollgas)
   float pedalSmooth_ = NAN;      // geglättetes Pedal für "ruhiges Gas"
   uint32_t speedT_ = 0;          // Zeitstempel der letzten Tempo-Messung
   float speedPrev_ = NAN;

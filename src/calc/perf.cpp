@@ -41,9 +41,21 @@ bool SprintMeter::takeBestChanged() {
 
 void SprintMeter::abort() { state_ = State::Ready; }
 
-void SprintMeter::update(uint32_t t, float v, float pedal, float rpm) {
+void SprintMeter::result(Kind k, float s, float& best) {
+  resultKind_ = k;
+  resultS_ = s;
+  resultPrevBest_ = best;
+  resultSeq_++;
+  if (std::isnan(best) || s < best) {
+    best = s;
+    bestChanged_ = true;
+  }
+}
+
+void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
   if (std::isnan(v)) return;
   const bool standing = v < cfg::SPRINT_STAND_KMH;
+  standing_ = standing;
   const bool wasStanding = !std::isnan(prevV_) && prevV_ < cfg::SPRINT_STAND_KMH;
   // Zeitpunkt, zu dem das Tempo x zwischen der vorigen und dieser Messung erreicht wurde (linear)
   auto cross = [&](float x) -> uint32_t {
@@ -51,9 +63,10 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float rpm) {
     const float f = (x - prevV_) / (v - prevV_);
     return prevT_ + static_cast<uint32_t>((f < 0 ? 0 : (f > 1 ? 1 : f)) * (t - prevT_));
   };
+  const bool pedalHigh = !std::isnan(pedal) && pedal >= cfg::SPRINT_PEDAL_PCT;
 
   // --- Sprint aus dem Stand erkennen: ≥ 1 s gestanden, dann spätestens 3 s nach dem Anfahren
-  //     Gaspedal ≥ 85 % und Drehzahl ≥ 3000 U/min (A10)
+  //     Gaspedal ≥ 80 % des Bereichs oder im Schnitt ≥ 9 km/h je s seit dem Anfahren (A10, geändert)
   if (standing) {
     if (!standSince_) standSince_ = t ? t : 1;
     leftAt_ = 0;
@@ -64,21 +77,19 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float rpm) {
   }
   const bool armed = (standing && standSince_ && t - standSince_ >= cfg::SPRINT_STAND_MIN_MS) ||
                      (leftAt_ && t - leftAt_ <= cfg::SPRINT_ARM_AFTER_LEAVE_MS);
-  const bool launch = armed && !std::isnan(pedal) && pedal >= cfg::SPRINT_PEDAL_PCT && !std::isnan(rpm) &&
-                      rpm >= cfg::SPRINT_MIN_RPM;
+  const bool strong = leftAt_ && t - leftAt_ >= cfg::SPRINT_LAUNCH_MIN_MS &&
+                      v / ((t - leftAt_) / 1000.0f) >= cfg::SPRINT_LAUNCH_KMH_S;
+  const bool launch = armed && (pedalHigh || strong);
   if (launch && !launchLatched_) {
     launchLatched_ = true;
     launchSeq_++;
   }
-  // Gaspedal unter 50 %: Abbruch erst nach 1,5 s (ein Schaltvorgang ist kürzer)
-  const bool low = std::isnan(pedal) || pedal < cfg::SPRINT_ABORT_PEDAL_PCT;
 
-  // --- 0–50 und 0–100: Aufzeichnung ab dem Losrollen, gültig erst mit erkanntem Sprint
+  // --- 0–50 und 0–100: Aufzeichnung (Live-Kurve) ab jedem Losrollen, gültig erst mit erkanntem Sprint
   if ((state_ == State::Ready || state_ == State::Done) && wasStanding && !standing) {
     state_ = State::Waiting;
     startMs_ = prevT_;  // Startzeit = letzte Messung im Stand (A10: Tempo verlässt 0)
     vTop_ = v;
-    lowSince_ = 0;
     t50_ = NAN;
     cur_.clear();
     cur_.add(0, 0);
@@ -86,60 +97,48 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float rpm) {
   if (state_ == State::Waiting || state_ == State::Running) {
     if (v > vTop_) vTop_ = v;
     cur_.add((t - startMs_) / 1000.0f, v > 100 ? 100 : v);
-    lowSince_ = low ? (lowSince_ ? lowSince_ : t) : 0;
     if (std::isnan(t50_) && v >= 50) t50_ = (cross(50) - startMs_) / 1000.0f;
-    if (state_ == State::Waiting) {
-      if (launch) {
-        state_ = State::Running;
-      } else if (t - startMs_ > cfg::SPRINT_ARM_AFTER_LEAVE_MS) {
-        abort();  // normales Anfahren: still verworfen
-      }
-    }
+    // Sprint nur innerhalb der ersten 3 s nach dem Anfahren; danach bleibt es eine Live-Kurve
+    if (state_ == State::Waiting && launch && t - startMs_ <= cfg::SPRINT_ARM_AFTER_LEAVE_MS + 200) state_ = State::Running;
+    const bool over = v < vTop_ - cfg::SPRINT_ABORT_DROP_KMH || t - startMs_ > cfg::SPRINT_MAX_MS;
     if (state_ == State::Running) {
       if (!std::isnan(t50_) && std::isnan(last50Run_)) {
         last50Run_ = t50_;
         last50_ = t50_;
-        if (std::isnan(best_.s50) || t50_ < best_.s50) {
-          best_.s50 = t50_;
-          bestChanged_ = true;
-        }
+        result(Kind::S50, t50_, best_.s50);
       }
       if (v >= 100) {
         last100_ = (cross(100) - startMs_) / 1000.0f;
         trace_ = cur_;
         state_ = State::Done;
         doneAt_ = t ? t : 1;
-        if (std::isnan(best_.s100) || last100_ <= best_.s100) {
-          best_.s100 = last100_;
-          best_.trace100 = cur_;
-          bestChanged_ = true;
-        }
-      } else if ((lowSince_ && t - lowSince_ > cfg::SPRINT_ABORT_LOW_MS) || v < vTop_ - cfg::SPRINT_ABORT_DROP_KMH) {
+        const float before = best_.s100;
+        result(Kind::S100, last100_, best_.s100);
+        if (std::isnan(before) || last100_ <= before) best_.trace100 = cur_;
+      } else if (over) {
         abort();
       }
+    } else if (state_ == State::Waiting && (over || v >= 100)) {
+      abort();  // normales Anfahren: Live-Kurve endet, zählt nicht
     }
     if (state_ != State::Running) last50Run_ = NAN;
   }
 
-  // --- 80–120: beim Durchfahren von 80 km/h mit Gaspedal ≥ 85 %, gleiche Abbruchregel
+  // --- 80–120: beim Durchfahren von 80 km/h mit Gaspedal ≥ 80 % oder kräftiger Beschleunigung
   if (!run80_) {
-    if (!std::isnan(prevV_) && prevV_ < 80 && v >= 80 && !low && pedal >= cfg::SPRINT_PEDAL_PCT) {
+    if (!std::isnan(prevV_) && prevV_ < 80 && v >= 80 &&
+        (pedalHigh || (!std::isnan(accel) && accel >= cfg::SPRINT_80_ACCEL_MS2))) {
       run80_ = true;
       start80_ = cross(80);
       vTop80_ = v;
-      low80Since_ = 0;
     }
   } else {
     if (v > vTop80_) vTop80_ = v;
-    low80Since_ = low ? (low80Since_ ? low80Since_ : t) : 0;
     if (v >= 120) {
       last80120_ = (cross(120) - start80_) / 1000.0f;
       run80_ = false;
-      if (std::isnan(best_.s80120) || last80120_ < best_.s80120) {
-        best_.s80120 = last80120_;
-        bestChanged_ = true;
-      }
-    } else if ((low80Since_ && t - low80Since_ > cfg::SPRINT_ABORT_LOW_MS) || v < vTop80_ - cfg::SPRINT_ABORT_DROP_KMH) {
+      result(Kind::S80120, last80120_, best_.s80120);
+    } else if (v < vTop80_ - cfg::SPRINT_ABORT_DROP_KMH || t - start80_ > cfg::SPRINT_MAX_MS) {
       run80_ = false;
     }
   }

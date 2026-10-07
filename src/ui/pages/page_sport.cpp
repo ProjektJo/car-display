@@ -1,13 +1,22 @@
-// Seite "Sport" (A10, U Seite 2): Drehzahlbogen 240° (0–6500 U/min, ab 5800 warn) mit Tempo und Gang,
-// vier Live-Balken (Leistung, Beschleunigung, Gaspedal, Saugrohrdruck) und Live-Diagramm der letzten 30 s
-// mit umschaltbarem Serienpaar. Positionen aus der Vorschau (pLeistung).
+// Seite "Sport" (A10, U Seite 2), umgebaut am 7.10.2026 nach der ersten Fahrt (Jos Wunsch):
+// großer Drehzahlbogen 240° (0–6500 U/min, ab 5800 warn) mit großem Tempo und Gang, rechts die vier
+// Live-Balken (Leistung, Beschleunigung, Gaspedal, Saugrohrdruck), darunter eine Wettbewerbszeile und unten
+// vier frei belegbare Felder (Ø Tempo, Strecke, Fahrzeit, Leistung). Das Live-Diagramm der letzten 30 s
+// erscheint groß, wenn man auf den Bogen tippt.
+//
+// Wettbewerbszeile (in dieser Reihenfolge):
+//  1. 8 s nach einem Sprint-Ergebnis: Zeit und Abstand zur Bestzeit ("Bestzeit!" grün, sonst "+0,4 s" orange)
+//  2. beim kräftigen Beschleunigen: Prozent der besten Beschleunigung dieser Fahrt ("Rekord!" ab 100 %)
+//  3. sonst der Schnitt-Trend: Wie hat sich das Ø Tempo der Fahrt in den letzten 2 min verändert
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "config.h"
 #include "page.h"
+#include "ui/field_bar.h"
 #include "ui/live.h"
+#include "ui/overlay.h"
 #include "ui/symbols.h"
 #include "ui/theme.h"
 #include "ui/ui_prefs.h"
@@ -18,17 +27,25 @@ namespace {
 
 using live::Ser;
 
-// Drehzahlbogen
-constexpr int32_t CX = 78, CY = 66, R = 56, ARC_W = 9;
+// Drehzahlbogen links, groß
+constexpr int32_t CX = 86, CY = 86, R = 74, ARC_W = 12;
 constexpr int32_t A0 = 150, SWEEP = 240;
 // Balken rechts
-constexpr int32_t BAR_X = 166, BAR_RIGHT = 10;
-constexpr int32_t BAR_TOPS[4] = {8, 35, 62, 89};
-constexpr int32_t BAR_H = 5;
-// Kopfzeile und Diagramm
-constexpr int32_t HEAD_Y = 118;
-constexpr int32_t CH_X0 = 30, CH_X1 = 290, CH_Y0 = 138, CH_H = 70;
+constexpr int32_t BAR_X = 178, BAR_RIGHT = 10;
+constexpr int32_t BAR_TOPS[4] = {2, 32, 62, 92};
+constexpr int32_t BAR_H = 6;
+// Wettbewerbszeile und Felder
+constexpr int32_t LINE_Y = 132;
+constexpr int32_t FIELDS_H = 48, FIELDS_BOTTOM = 5;
+// Live-Diagramm im Fenster
+constexpr int32_t CH_X0 = 30, CH_X1 = 262, CH_Y0 = 10, CH_H = 130;
 constexpr int DASH_PX = 3;
+// Wettbewerb
+constexpr uint32_t RESULT_SHOW_MS = 8000;
+constexpr float ACC_SHOW_MS2 = 1.0f;        // Beschleunigungs-Urteil ab 1 m/s² und 5 km/h
+constexpr uint32_t TREND_SAMPLE_MS = 10000; // Schnitt alle 10 s merken ...
+constexpr int TREND_SAMPLES = 13;           // ... 13 Proben = 2 min zurück
+constexpr float TREND_MIN_KMH = 0.5f;       // kleiner: neutral
 
 // Serienpaare (A10): Tempo + Leistung, Drehzahl + Gas, Beschleunigung + Leistung
 constexpr Ser PAIRS[3][2] = {{Ser::Speed, Ser::Kw}, {Ser::Rpm, Ser::Pedal}, {Ser::Acc, Ser::Kw}};
@@ -86,77 +103,115 @@ struct Bar {
   lv_obj_t* value = nullptr;
   lv_obj_t* track = nullptr;
   lv_obj_t* fill = nullptr;
+  lv_obj_t* mark = nullptr;  // Beschleunigung: bester Wert der Fahrt
   bool bipolar = false;
   char shown[32] = "";
-  int32_t shownX = -1, shownW = -1;
+  int32_t shownX = -1, shownW = -1, shownMark = -1;
   uint32_t shownColor = 0;
 };
 
+int pair() {
+  const int p = uiprefs::get().sportPair;
+  return p < 3 ? p : 0;
+}
+
+// Live-Diagramm (Fenster): Rahmen x0..x1, y0..y0+h
+void drawLive(lv_layer_t* layer, int32_t x0, int32_t x1, int32_t y0, int32_t h) {
+  for (int f = 0; f <= 2; f++) line(layer, x0, y0 + h * f / 2, x1, y0 + h * f / 2, theme::LINE, 1);
+  const Ser* pr = PAIRS[pair()];
+  if (pr[0] == Ser::Acc) {
+    const int32_t yz = y0 + h - static_cast<int32_t>((0 - live::lo(Ser::Acc)) / (live::hi(Ser::Acc) - live::lo(Ser::Acc)) * h);
+    line(layer, x0, yz, x1, yz, theme::MUTED, 1, 150);
+  }
+  const int n = live::count();
+  const uint32_t tNow = n ? live::at(n - 1).t : 0;
+  for (int idx = 0; idx < 2; idx++) {
+    const Ser r = pr[idx];
+    const uint32_t col = idx ? theme::MUTED : theme::ACCENT;
+    bool pen = false;
+    int32_t px = 0, py = 0;
+    for (int i = 0; i < n; i++) {
+      const live::Entry& e = live::at(i);
+      const float age = (tNow - e.t) / 1000.0f;
+      if (age > cfg::LIVE_WINDOW_S) continue;
+      const float v = e.v[static_cast<int>(r)];
+      if (std::isnan(v)) {
+        pen = false;
+        continue;
+      }
+      float c = (v - live::lo(r)) / (live::hi(r) - live::lo(r));
+      c = c < 0 ? 0 : (c > 1 ? 1 : c);
+      const int32_t x = x1 - static_cast<int32_t>(std::lround(age / cfg::LIVE_WINDOW_S * (x1 - x0)));
+      const int32_t y = y0 + h - static_cast<int32_t>(std::lround(c * h));
+      if (pen && (idx == 0 || ((x - x0) / DASH_PX) % 2 == 0)) line(layer, px, py, x, y, col, 2);
+      px = x;
+      py = y;
+      pen = true;
+    }
+    char t[12];
+    fmt::number(t, sizeof(t), live::hi(r), 0);
+    const int32_t ax = idx ? x1 + 3 : x0 - 3 - 28;
+    const lv_text_align_t al = idx ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_RIGHT;
+    text(layer, t, ax, y0 - 6, 28, al, col, &font_m12);
+    fmt::number(t, sizeof(t), live::lo(r), 0);
+    text(layer, t, ax, y0 + h - 8, 28, al, col, &font_m12);
+  }
+}
+
+class SportPage;
+SportPage* self = nullptr;
+
 class SportPage : public Page {
  public:
-  SportPage() : Page("Sport") {}
+  SportPage() : Page("Sport") { self = this; }
 
   void create(lv_obj_t* parent) override {
     gauge_ = lv_obj_create(parent);
     lv_obj_remove_style_all(gauge_);
-    lv_obj_set_size(gauge_, BOARD_LCD_HOR_RES, theme::CONTENT_H);
-    lv_obj_remove_flag(gauge_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(gauge_, 0, 0);
+    lv_obj_set_size(gauge_, BAR_X - 4, LINE_Y);
+    lv_obj_add_flag(gauge_, LV_OBJ_FLAG_CLICKABLE);  // Tippen: Live-Diagramm groß
+    lv_obj_add_event_cb(gauge_, onGaugeTap, LV_EVENT_SHORT_CLICKED, this);
     lv_obj_add_event_cb(gauge_, onDraw, LV_EVENT_DRAW_MAIN, this);
 
-    // Tempo und Gang in der Mitte des Bogens
-    speed_ = theme::label(parent, &font_m28, false, fmt::NO_VALUE);
+    // Tempo groß und Gang in der Mitte des Bogens
+    speed_ = theme::label(parent, &font_m48, false, fmt::NO_VALUE);
     lv_obj_set_width(speed_, 2 * R);
     lv_obj_set_style_text_align(speed_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(speed_, CX - R, CY - 24);
-    lv_obj_t* u = theme::label(parent, &lv_font_montserrat_10, true, "km/h");
+    lv_obj_set_pos(speed_, CX - R, CY - 36);
+    lv_obj_t* u = theme::label(parent, &font_m12, true, "km/h");
     lv_obj_set_width(u, 2 * R);
     lv_obj_set_style_text_align(u, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(u, CX - R, CY + 9);
+    lv_obj_set_pos(u, CX - R, CY + 14);
     gearRow_ = lv_obj_create(parent);
     lv_obj_remove_style_all(gearRow_);
     lv_obj_set_size(gearRow_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(gearRow_, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(gearRow_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    lv_obj_set_style_pad_column(gearRow_, 3, 0);
+    lv_obj_set_style_pad_column(gearRow_, 4, 0);
     lv_obj_remove_flag(gearRow_, LV_OBJ_FLAG_CLICKABLE);
-    arrow_ = theme::label(gearRow_, &font_m14, false, SYM_UP);
+    arrow_ = theme::label(gearRow_, &font_m20, false, SYM_UP);
     lv_obj_set_style_text_color(arrow_, theme::c(theme::GOOD), 0);
     lv_obj_add_flag(arrow_, LV_OBJ_FLAG_HIDDEN);
-    gear_ = theme::label(gearRow_, &font_m14, false, fmt::NO_VALUE);
+    gear_ = theme::label(gearRow_, &font_v24, false, fmt::NO_VALUE);
     lv_obj_t* gl = theme::label(gearRow_, &font_m12, true, "Gang");
-    lv_obj_set_style_pad_bottom(gl, 1, 0);
-    lv_obj_align(gearRow_, LV_ALIGN_TOP_MID, CX - BOARD_LCD_HOR_RES / 2, CY + 26);
+    lv_obj_set_style_pad_bottom(gl, 4, 0);
+    lv_obj_align(gearRow_, LV_ALIGN_TOP_MID, CX - BOARD_LCD_HOR_RES / 2, CY + 30);
 
     static const char* const LABELS[4] = {"Leistung", "Beschleunigung", "Gaspedal", "Saugrohrdruck"};
     for (int i = 0; i < 4; i++) makeBar(parent, i, LABELS[i], i == 1);
 
-    head_ = theme::label(parent, &font_m12, true, "Letzte 30 s");
-    lv_obj_set_pos(head_, 10, HEAD_Y);
-    chip_ = lv_obj_create(parent);
-    lv_obj_remove_style_all(chip_);
-    lv_obj_set_size(chip_, LV_SIZE_CONTENT, 18);
-    lv_obj_set_style_radius(chip_, 9, 0);
-    lv_obj_set_style_border_width(chip_, 1, 0);
-    lv_obj_set_style_border_color(chip_, theme::c(theme::LINE), 0);
-    lv_obj_set_style_pad_hor(chip_, 8, 0);
-    lv_obj_set_flex_flow(chip_, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(chip_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(chip_, 6, 0);
-    lv_obj_add_flag(chip_, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_ext_click_area(chip_, 6);
-    lv_obj_add_event_cb(chip_, onChip, LV_EVENT_SHORT_CLICKED, this);
-    chipA_ = theme::label(chip_, &font_m12, false, "");
-    lv_obj_set_style_text_color(chipA_, theme::c(theme::ACCENT), 0);
-    chipB_ = theme::label(chip_, &font_m12, true, "");
-    theme::label(chip_, &font_m12, true, "\xEF\x81\x94");  // Pfeil rechts
-    lv_obj_align(chip_, LV_ALIGN_TOP_RIGHT, -10, HEAD_Y - 2);
-    refreshChip();
+    // Wettbewerbszeile
+    compete_ = theme::label(parent, &font_m20, false, "");
+    lv_obj_set_width(compete_, BOARD_LCD_HOR_RES - 16);
+    lv_obj_set_style_text_align(compete_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(compete_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_pos(compete_, 8, LINE_Y + 2);
+
+    fields_.create(parent, 1, 4, theme::CONTENT_H - FIELDS_BOTTOM - FIELDS_H, FIELDS_H);
   }
 
-  void onShow() override {
-    refreshChip();
-    lv_obj_invalidate(gauge_);
-  }
+  void onShow() override { lv_obj_invalidate(gauge_); }
 
   void tick(const CarSnapshot& s) override {
     if (s.shiftAdvice) {
@@ -164,11 +219,40 @@ class SportPage : public Page {
     } else {
       shiftSince_ = 0;
     }
+    // Schnitt-Trend: alle 10 s das Ø Tempo der Fahrt merken
+    if (!trendAt_ || s.now - trendAt_ >= TREND_SAMPLE_MS) {
+      trendAt_ = s.now ? s.now : 1;
+      trend_[trendHead_] = values::value(values::Key::AvgSpeed, s);
+      trendHead_ = (trendHead_ + 1) % TREND_SAMPLES;
+      if (trendCount_ < TREND_SAMPLES) trendCount_++;
+    }
+    // Beste Beschleunigung dieser Sitzung (für das Urteil): zählt erst, wenn eine Beschleunigungsphase endet,
+    // damit die laufende Phase mit dem bisherigen Rekord verglichen wird
+    const float acc = s.imuReady ? s.imuLong.get(s.now) : s.accel.get(s.now);
+    if (!std::isnan(acc) && acc >= ACC_SHOW_MS2) {
+      if (std::isnan(phaseMax_) || acc > phaseMax_) phaseMax_ = acc;
+    } else if (!std::isnan(phaseMax_)) {
+      if (std::isnan(accBest_) || phaseMax_ > accBest_) accBest_ = phaseMax_;
+      phaseMax_ = NAN;
+    }
+    // Neues Sprint-Ergebnis
+    if (s.sprint.resultSeq != seenResult_) {
+      if (seenInit_) resultAt_ = s.now ? s.now : 1;
+      seenResult_ = s.sprint.resultSeq;
+    }
+    seenInit_ = true;
+    // Live-Diagramm im Fenster aktuell halten (auch wenn die Seite gewechselt wurde)
+    if (chart_ && overlay::isOpen() && overlay::generation() == chartGen_ && live::seq() != drawnSeq_ &&
+        s.now - chartDraw_ >= cfg::CHART_MIN_REDRAW_MS) {
+      drawnSeq_ = live::seq();
+      chartDraw_ = s.now;
+      lv_obj_invalidate(chart_);
+    }
   }
 
   void update(const CarSnapshot& s) override {
     last_ = s;
-    char t[32];
+    char t[48];
     fmt::number(t, sizeof(t), s.speed.get(s.now), 0);
     setText(speed_, shownSpeed_, sizeof(shownSpeed_), t);
     values::text(values::Key::Gear, s, t, sizeof(t));
@@ -201,6 +285,7 @@ class SportPage : public Page {
     else
       snprintf(t, sizeof(t), "%s%s m/s" "\xC2\xB2", acc >= 0 ? "+" : "\xE2\x80\x93", a);  // – und ²
     setBar(1, t, std::isnan(acc) ? 0 : acc / 4.0f, (!std::isnan(acc) && acc < 0) ? theme::MUTED : theme::ACCENT);
+    setMark(1, std::isnan(accBest_) || accBest_ < ACC_SHOW_MS2 ? NAN : accBest_ / 4.0f);
     const float pedal = values::value(values::Key::Pedal, s);
     fmt::number(a, sizeof(a), pedal, 0);
     snprintf(t, sizeof(t), std::isnan(pedal) ? "%s" : "%s %%", a);
@@ -210,45 +295,80 @@ class SportPage : public Page {
     snprintf(t, sizeof(t), std::isnan(map) ? "%s" : "%s kPa", a);
     setBar(3, t, std::isnan(map) ? 0 : map / 100.0f, theme::ACCENT);
 
-    // Kopfzeile: laufende Sprintmessung
-    const bool running = s.sprint.state == perf::State::Running;
-    if (running) {
-      fmt::number(a, sizeof(a), s.sprint.elapsed, 1);
-      snprintf(t, sizeof(t), "0" "\xE2\x80\x93" "100 läuft " SYM_DOT " %s s", a);
-    } else {
-      snprintf(t, sizeof(t), "Letzte 30 s");
-    }
-    setText(head_, shownHead_, sizeof(shownHead_), t);
-    if (running != shownRunning_) {
-      shownRunning_ = running;
-      lv_obj_set_style_text_color(head_, theme::c(running ? theme::ACCENT : theme::MUTED), 0);
-    }
+    updateCompete(s, acc);
+    fields_.update(s);
 
-    // Bogen und Diagramm neu zeichnen, wenn sich Drehzahl oder der Puffer geändert haben (höchstens 5 Hz)
+    // Bogen neu zeichnen, wenn sich die Drehzahl geändert hat (höchstens 5 Hz); Fenster mit dem Live-Diagramm
     const float rpm = s.rpm.get(s.now);
     const int rpmStep = std::isnan(rpm) ? -1 : static_cast<int>(rpm / 25);
-    if ((rpmStep != drawnRpm_ || live::seq() != drawnSeq_) && s.now - lastDraw_ >= cfg::CHART_MIN_REDRAW_MS) {
+    if (rpmStep != drawnRpm_ && s.now - lastDraw_ >= cfg::CHART_MIN_REDRAW_MS) {
       drawnRpm_ = rpmStep;
-      drawnSeq_ = live::seq();
       lastDraw_ = s.now;
       lv_obj_invalidate(gauge_);
     }
   }
 
  private:
+  void updateCompete(const CarSnapshot& s, float acc) {
+    const SprintInfo& sp = s.sprint;
+    char t[48] = "";
+    uint32_t col = theme::MUTED;
+    const float v = s.speed.get(s.now);
+    if (resultAt_ && s.now - resultAt_ < RESULT_SHOW_MS && !std::isnan(sp.resultS)) {
+      static const char* const K[] = {"", "0" "\xE2\x80\x93" "50", "0" "\xE2\x80\x93" "100", "80" "\xE2\x80\x93" "120"};
+      char n[12];
+      fmt::number(n, sizeof(n), sp.resultS, 1);
+      const char* k = K[static_cast<int>(sp.resultKind) < 4 ? static_cast<int>(sp.resultKind) : 0];
+      if (std::isnan(sp.resultPrevBest) || sp.resultS < sp.resultPrevBest) {
+        snprintf(t, sizeof(t), "%s: %s s " SYM_DOT " Bestzeit!", k, n);
+        col = theme::GOOD;
+      } else {
+        char d[12];
+        fmt::number(d, sizeof(d), sp.resultS - sp.resultPrevBest, 1);
+        snprintf(t, sizeof(t), "%s: %s s " SYM_DOT " +%s zur Best", k, n, d);
+        col = theme::WARN;
+      }
+    } else if (!std::isnan(acc) && acc >= ACC_SHOW_MS2 && !std::isnan(v) && v > 5 && !std::isnan(accBest_) && accBest_ > 0) {
+      const int pct = static_cast<int>(std::lround(acc / accBest_ * 100));
+      if (pct > 100) {
+        snprintf(t, sizeof(t), "Beschleunigung: Rekord!");
+        col = theme::GOOD;
+      } else {
+        snprintf(t, sizeof(t), "Beschleunigung %d %% vom Rekord", pct);
+        col = pct >= 85 ? theme::GOOD : theme::ACCENT;
+      }
+    } else if (trendCount_ >= TREND_SAMPLES) {
+      const float now = trend_[(trendHead_ + TREND_SAMPLES - 1) % TREND_SAMPLES];
+      const float then = trend_[trendHead_];  // älteste Probe = vor 2 min
+      if (!std::isnan(now) && !std::isnan(then)) {
+        const float d = now - then;
+        char n[12], m[12];
+        fmt::number(n, sizeof(n), std::fabs(d), 1);
+        fmt::number(m, sizeof(m), now, 0);
+        snprintf(t, sizeof(t), SYM_AVG " %s km/h " SYM_DOT " %s%s in 2 min", m, d >= 0 ? "+" : "\xE2\x80\x93", n);
+        col = std::fabs(d) < TREND_MIN_KMH ? theme::MUTED : (d > 0 ? theme::GOOD : theme::WARN);
+      }
+    }
+    setText(compete_, shownCompete_, sizeof(shownCompete_), t);
+    if (col != shownCompeteColor_) {
+      shownCompeteColor_ = col;
+      lv_obj_set_style_text_color(compete_, theme::c(col), 0);
+    }
+  }
+
   void makeBar(lv_obj_t* parent, int i, const char* label, bool bipolar) {
     Bar& b = bars_[i];
     b.bipolar = bipolar;
     const int32_t w = BOARD_LCD_HOR_RES - BAR_X - BAR_RIGHT;
-    b.label = theme::label(parent, &font_small, true, label);
+    b.label = theme::label(parent, &font_m12, true, label);
     lv_obj_set_pos(b.label, BAR_X, BAR_TOPS[i]);
-    b.value = theme::label(parent, &font_m12, false, fmt::NO_VALUE);
+    b.value = theme::label(parent, &font_m14, false, fmt::NO_VALUE);
     lv_obj_set_width(b.value, w);
     lv_obj_set_style_text_align(b.value, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_pos(b.value, BAR_X, BAR_TOPS[i]);
+    lv_obj_set_pos(b.value, BAR_X, BAR_TOPS[i] + 12);
     b.track = lv_obj_create(parent);
     lv_obj_remove_style_all(b.track);
-    lv_obj_set_pos(b.track, BAR_X, BAR_TOPS[i] + 17);
+    lv_obj_set_pos(b.track, BAR_X, BAR_TOPS[i] + 21);
     lv_obj_set_size(b.track, w, BAR_H);
     lv_obj_set_style_radius(b.track, 3, 0);
     lv_obj_set_style_bg_color(b.track, theme::c(theme::SURFACE), 0);
@@ -257,7 +377,7 @@ class SportPage : public Page {
     if (bipolar) {
       lv_obj_t* mid = lv_obj_create(parent);
       lv_obj_remove_style_all(mid);
-      lv_obj_set_pos(mid, BAR_X + w / 2, BAR_TOPS[i] + 15);
+      lv_obj_set_pos(mid, BAR_X + w / 2, BAR_TOPS[i] + 19);
       lv_obj_set_size(mid, 1, BAR_H + 4);
       lv_obj_set_style_bg_color(mid, theme::c(theme::MUTED), 0);
       lv_obj_set_style_bg_opa(mid, LV_OPA_COVER, 0);
@@ -269,6 +389,14 @@ class SportPage : public Page {
     lv_obj_set_style_bg_opa(b.fill, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(b.fill, theme::c(theme::ACCENT), 0);
     b.shownColor = theme::ACCENT;
+    if (bipolar) {
+      b.mark = lv_obj_create(parent);
+      lv_obj_remove_style_all(b.mark);
+      lv_obj_set_size(b.mark, 2, BAR_H + 6);
+      lv_obj_set_style_bg_color(b.mark, theme::c(theme::GOOD), 0);
+      lv_obj_set_style_bg_opa(b.mark, LV_OPA_COVER, 0);
+      lv_obj_add_flag(b.mark, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 
   // frac 0–1 bzw. bei der Beschleunigung −1…+1 um die Mitte
@@ -297,24 +425,81 @@ class SportPage : public Page {
     }
   }
 
+  // Marke "bester Wert" auf dem Beschleunigungsbalken (frac 0–1 rechts der Mitte, NAN = aus)
+  void setMark(int i, float frac) {
+    Bar& b = bars_[i];
+    if (!b.mark) return;
+    const int32_t w = BOARD_LCD_HOR_RES - BAR_X - BAR_RIGHT;
+    const int32_t x = std::isnan(frac) ? -1 : BAR_X + w / 2 + static_cast<int32_t>(std::lround((frac > 1 ? 1 : frac) * w / 2)) - 1;
+    if (x == b.shownMark) return;
+    b.shownMark = x;
+    if (x < 0) {
+      lv_obj_add_flag(b.mark, LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_remove_flag(b.mark, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_pos(b.mark, x, BAR_TOPS[i] + 18);
+    }
+  }
+
   static void setText(lv_obj_t* l, char* shown, size_t size, const char* t) {
     if (strcmp(shown, t) == 0) return;
     snprintf(shown, size, "%s", t);
     lv_label_set_text(l, t);
   }
 
-  static int pair() {
-    const int p = uiprefs::get().sportPair;
-    return p < 3 ? p : 0;
+  // ---------- Live-Diagramm im Fenster (Tippen auf den Bogen) ----------
+  static void onGaugeTap(lv_event_t* e) {
+    if (overlay::isOpen()) return;
+    static_cast<SportPage*>(lv_event_get_user_data(e))->openChart();
+  }
+
+  void openChart() {
+    lv_obj_t* card = overlay::open("");
+    chartGen_ = overlay::generation();
+    lv_obj_set_layout(card, LV_LAYOUT_NONE);
+    lv_obj_t* h = theme::label(card, &font_m14, false, "Letzte 30 s");
+    lv_obj_set_pos(h, 0, 0);
+    // Serienpaar umschalten
+    lv_obj_t* chip = lv_obj_create(card);
+    lv_obj_remove_style_all(chip);
+    lv_obj_set_size(chip, LV_SIZE_CONTENT, 24);
+    lv_obj_set_style_radius(chip, 12, 0);
+    lv_obj_set_style_border_width(chip, 1, 0);
+    lv_obj_set_style_border_color(chip, theme::c(theme::LINE), 0);
+    lv_obj_set_style_bg_color(chip, theme::c(theme::LINE), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_pad_hor(chip, 10, 0);
+    lv_obj_set_flex_flow(chip, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(chip, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(chip, 6, 0);
+    lv_obj_add_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(chip, 6);
+    lv_obj_add_event_cb(chip, onChip, LV_EVENT_SHORT_CLICKED, this);
+    chipA_ = theme::label(chip, &font_m14, false, "");
+    lv_obj_set_style_text_color(chipA_, theme::c(theme::ACCENT), 0);
+    chipB_ = theme::label(chip, &font_m14, true, "");
+    lv_obj_align(chip, LV_ALIGN_TOP_RIGHT, 0, -4);
+    chart_ = lv_obj_create(card);
+    lv_obj_remove_style_all(chart_);
+    lv_obj_set_pos(chart_, 0, 30);
+    lv_obj_set_size(chart_, LV_PCT(100), CH_Y0 + CH_H + 8);
+    lv_obj_add_flag(chart_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(chart_, onChartTap, LV_EVENT_SHORT_CLICKED, nullptr);  // Tippen ins Diagramm schließt
+    lv_obj_add_event_cb(chart_, onChartDraw, LV_EVENT_DRAW_MAIN, nullptr);
+    lv_obj_t* note = theme::label(card, &font_m12, true, "Tippen ins Diagramm schließt");
+    lv_obj_align(note, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    overlay::setOnClose([] { self->chart_ = nullptr; });
+    refreshChip();
   }
 
   void refreshChip() {
+    if (!chipA_) return;
     char t[32];
     snprintf(t, sizeof(t), "\xE2\x80\x94 %s", live::label(PAIRS[pair()][0]));  // —
     lv_label_set_text(chipA_, t);
     snprintf(t, sizeof(t), "- - %s", live::label(PAIRS[pair()][1]));
     lv_label_set_text(chipB_, t);
-    lv_obj_invalidate(gauge_);
+    if (chart_) lv_obj_invalidate(chart_);
   }
 
   static void onChip(lv_event_t* e) {
@@ -324,6 +509,15 @@ class SportPage : public Page {
     p->refreshChip();
   }
 
+  static void onChartTap(lv_event_t*) { overlay::close(); }
+
+  static void onChartDraw(lv_event_t* e) {
+    lv_area_t a;
+    lv_obj_get_coords(lv_event_get_target_obj(e), &a);
+    drawLive(lv_event_get_layer(e), a.x1 + CH_X0, a.x1 + CH_X1, a.y1 + CH_Y0, CH_H);
+  }
+
+  // ---------- Drehzahlbogen ----------
   static void onDraw(lv_event_t* e) {
     static_cast<SportPage*>(lv_event_get_user_data(e))->draw(lv_event_get_layer(e), lv_event_get_target_obj(e));
   }
@@ -343,54 +537,12 @@ class SportPage : public Page {
     for (int k = 0; k <= 6; k++) {
       const float ang = angleOf(k * 1000.0f) * 3.14159265f / 180.0f;
       const float c = std::cos(ang), sn = std::sin(ang);
-      line(layer, cx + std::lround((R - 6) * c), cy + std::lround((R - 6) * sn), cx + std::lround((R + 5) * c),
-           cy + std::lround((R + 5) * sn), theme::BG, 2);
+      line(layer, cx + std::lround((R - 6) * c), cy + std::lround((R - 6) * sn), cx + std::lround((R + 7) * c),
+           cy + std::lround((R + 7) * sn), theme::BG, 2);
       char t[4];
       snprintf(t, sizeof(t), "%d", k);
-      text(layer, t, cx + std::lround((R - 15) * c) - 6, cy + std::lround((R - 15) * sn) - 6, 12, LV_TEXT_ALIGN_CENTER,
-           theme::MUTED, &lv_font_montserrat_10);
-    }
-
-    // Live-Diagramm 30 s
-    const int32_t x0 = a.x1 + CH_X0, x1 = a.x1 + CH_X1, y0 = a.y1 + CH_Y0;
-    for (int f = 0; f <= 2; f++) line(layer, x0, y0 + CH_H * f / 2, x1, y0 + CH_H * f / 2, theme::LINE, 1);
-    const Ser* pr = PAIRS[pair()];
-    if (pr[0] == Ser::Acc) {
-      const int32_t yz = y0 + CH_H - static_cast<int32_t>((0 - live::lo(Ser::Acc)) / (live::hi(Ser::Acc) - live::lo(Ser::Acc)) * CH_H);
-      line(layer, x0, yz, x1, yz, theme::MUTED, 1, 150);
-    }
-    const int n = live::count();
-    const uint32_t tNow = n ? live::at(n - 1).t : 0;
-    for (int idx = 0; idx < 2; idx++) {
-      const Ser r = pr[idx];
-      const uint32_t col = idx ? theme::MUTED : theme::ACCENT;
-      bool pen = false;
-      int32_t px = 0, py = 0;
-      for (int i = 0; i < n; i++) {
-        const live::Entry& e = live::at(i);
-        const float age = (tNow - e.t) / 1000.0f;
-        if (age > cfg::LIVE_WINDOW_S) continue;
-        const float v = e.v[static_cast<int>(r)];
-        if (std::isnan(v)) {
-          pen = false;
-          continue;
-        }
-        float c = (v - live::lo(r)) / (live::hi(r) - live::lo(r));
-        c = c < 0 ? 0 : (c > 1 ? 1 : c);
-        const int32_t x = x1 - static_cast<int32_t>(std::lround(age / cfg::LIVE_WINDOW_S * (x1 - x0)));
-        const int32_t y = y0 + CH_H - static_cast<int32_t>(std::lround(c * CH_H));
-        if (pen && (idx == 0 || ((x - x0) / DASH_PX) % 2 == 0)) line(layer, px, py, x, y, col, 2);
-        px = x;
-        py = y;
-        pen = true;
-      }
-      char t[12];
-      fmt::number(t, sizeof(t), live::hi(r), 0);
-      const int32_t ax = idx ? x1 + 3 : x0 - 3 - 28;
-      const lv_text_align_t al = idx ? LV_TEXT_ALIGN_LEFT : LV_TEXT_ALIGN_RIGHT;
-      text(layer, t, ax, y0 - 5, 28, al, col, &lv_font_montserrat_10);
-      fmt::number(t, sizeof(t), live::lo(r), 0);
-      text(layer, t, ax, y0 + CH_H - 7, 28, al, col, &lv_font_montserrat_10);
+      text(layer, t, cx + std::lround((R - 17) * c) - 8, cy + std::lround((R - 17) * sn) - 8, 16, LV_TEXT_ALIGN_CENTER,
+           theme::MUTED, &font_m12);
     }
   }
 
@@ -399,21 +551,33 @@ class SportPage : public Page {
   lv_obj_t* gearRow_ = nullptr;
   lv_obj_t* arrow_ = nullptr;
   lv_obj_t* gear_ = nullptr;
-  lv_obj_t* head_ = nullptr;
-  lv_obj_t* chip_ = nullptr;
+  lv_obj_t* compete_ = nullptr;
+  lv_obj_t* chart_ = nullptr;
   lv_obj_t* chipA_ = nullptr;
   lv_obj_t* chipB_ = nullptr;
+  uint32_t chartGen_ = 0xFFFFFFFF;
+  uint32_t chartDraw_ = 0;
+  FieldBar fields_;
   Bar bars_[4];
   char shownSpeed_[12] = "";
   char shownGear_[8] = "";
-  char shownHead_[40] = "";
+  char shownCompete_[48] = "";
+  uint32_t shownCompeteColor_ = 0xFFFFFFFF;
   bool shownArrow_ = false;
-  bool shownRunning_ = false;
   bool shownImu_ = false;
   uint32_t shiftSince_ = 0;
   int drawnRpm_ = -2;
   uint32_t drawnSeq_ = 0;
   uint32_t lastDraw_ = 0;
+  // Wettbewerb
+  float trend_[TREND_SAMPLES] = {};
+  int trendHead_ = 0, trendCount_ = 0;
+  uint32_t trendAt_ = 0;
+  float accBest_ = NAN;   // beste Beschleunigung abgeschlossener Phasen
+  float phaseMax_ = NAN;  // laufende Phase
+  uint16_t seenResult_ = 0;
+  bool seenInit_ = false;
+  uint32_t resultAt_ = 0;
   CarSnapshot last_;
 };
 

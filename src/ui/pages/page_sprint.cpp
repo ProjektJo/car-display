@@ -1,6 +1,8 @@
-// Seite "Sprint" (A10, U Seite 3): Stoppuhr 0–100 mit Status bereit / läuft / geschafft und
-// Fortschrittsbalken, Tempoverlauf der letzten und der besten Messung, Tabelle 0–50 / 0–100 / 80–120
-// mit letzter und bester Zeit und vier Kacheln mit Fahrtwerten. Positionen aus der Vorschau (pSprint).
+// Seite "Sprint" (A10, U Seite 3), umgebaut am 7.10.2026 nach der ersten Fahrt (Jos Wunsch):
+// Das Zeit/Tempo-Diagramm ist groß. Im Stand zeigt ein grünes Feld "READY"; beim Anfahren wird es zu
+// einem kleinen orangen "GO" in der Ecke und die Live-Kurve läuft orange mit (jedes Anfahren aus dem Stand,
+// gezählt wird nur ein erkannter Sprint). Nach dem Ziel zeigt das Feld die Zeit in Grün. Die Messwerte
+// 0–50 / 0–100 / 80–120 stehen klein unten; Tippen zeigt einen groß mit Bestzeit und Abstand.
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -8,24 +10,26 @@
 
 #include "config.h"
 #include "page.h"
+#include "ui/overlay.h"
 #include "ui/symbols.h"
 #include "ui/theme.h"
 #include "util/format.h"
 
 namespace {
 
-// Karte links
-constexpr int32_t CARD_X = 8, CARD_Y = 6, CARD_W = 150, CARD_H = 96;
-constexpr uint32_t DONE_SHOW_MS = 10000;  // "geschafft" 10 s lang (Vorschau)
-// Verlauf rechts
-constexpr int32_t GX0 = 186, GX1 = 308, GY0 = 14, GH = 72;
-constexpr float G_MIN_TMAX_S = 14.0f;
-constexpr int DASH_PX = 3;
-// Tabelle und Kacheln
-constexpr int32_t TABLE_X = 12, TABLE_Y = 106, ROW_H = 19, COL_W = 44, COL_GAP = 18;
-constexpr int32_t TILE_SIDE = 8, TILE_GAP = 5, TILE_BOTTOM = 5, TILE_H = 30;
+// Diagramm
+constexpr int32_t GX0 = 34, GX1 = 310, GY0 = 8, GH = 158;
+constexpr float G_MIN_TMAX_S = 12.0f;
+constexpr uint32_t DONE_SHOW_MS = 10000;  // Ergebnis 10 s lang im Feld
+// Chips unten
+constexpr int32_t CHIP_SIDE = 8, CHIP_GAP = 6, CHIP_BOTTOM = 5, CHIP_H = 40;
+// Feld READY / GO
+constexpr int32_t READY_W = 150, READY_H = 56, GO_W = 64, GO_H = 26;
 
-void line(lv_layer_t* layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint32_t color, int32_t w) {
+const char* const NAMES[3] = {"0" "\xE2\x80\x93" "50", "0" "\xE2\x80\x93" "100", "80" "\xE2\x80\x93" "120"};
+
+void line(lv_layer_t* layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint32_t color, int32_t w,
+          lv_opa_t opa = LV_OPA_COVER) {
   lv_draw_line_dsc_t d;
   lv_draw_line_dsc_init(&d);
   d.p1.x = x1;
@@ -34,119 +38,92 @@ void line(lv_layer_t* layer, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uin
   d.p2.y = y2;
   d.color = theme::c(color);
   d.width = w;
+  d.opa = opa;
+  d.round_end = d.round_start = 1;
   lv_draw_line(layer, &d);
 }
 
-void text(lv_layer_t* layer, const char* t, int32_t x, int32_t y, int32_t w, lv_text_align_t al, uint32_t color) {
+void text(lv_layer_t* layer, const char* t, int32_t x, int32_t y, int32_t w, lv_text_align_t al, uint32_t color,
+          const lv_font_t* font = &font_m12) {
   lv_draw_label_dsc_t d;
   lv_draw_label_dsc_init(&d);
   d.text = t;
   d.text_local = 1;
-  d.font = &font_small;
+  d.font = font;
   d.color = theme::c(color);
   d.align = al;
-  lv_area_t a = {x, y, x + w - 1, y + 12};
+  lv_area_t a = {x, y, x + w - 1, y + lv_font_get_line_height(font)};
   lv_draw_label(layer, &d, &a);
 }
 
-void secText(char* out, size_t size, float s) {
+void secText(char* out, size_t size, float s, bool unit = true) {
   char n[12];
   fmt::number(n, sizeof(n), s, 1);
-  snprintf(out, size, std::isnan(s) ? "%s" : "%s s", n);
+  snprintf(out, size, (std::isnan(s) || !unit) ? "%s" : "%s s", n);
 }
+
+class SprintPage;
+SprintPage* self = nullptr;
 
 class SprintPage : public Page {
  public:
-  SprintPage() : Page("Sprint") {}
+  SprintPage() : Page("Sprint") { self = this; }
 
   void create(lv_obj_t* parent) override {
     graph_ = lv_obj_create(parent);
     lv_obj_remove_style_all(graph_);
-    lv_obj_set_size(graph_, BOARD_LCD_HOR_RES, TABLE_Y);
+    lv_obj_set_size(graph_, BOARD_LCD_HOR_RES, GY0 + GH + 16);
     lv_obj_remove_flag(graph_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(graph_, onDraw, LV_EVENT_DRAW_MAIN, this);
 
-    // Karte 0–100
-    lv_obj_t* card = lv_obj_create(parent);
-    lv_obj_remove_style_all(card);
-    lv_obj_set_pos(card, CARD_X, CARD_Y);
-    lv_obj_set_size(card, CARD_W, CARD_H);
-    lv_obj_set_style_bg_color(card, theme::c(theme::SURFACE), 0);
-    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(card, theme::RADIUS_TILE, 0);
-    lv_obj_set_style_pad_hor(card, 10, 0);
-    lv_obj_set_style_pad_ver(card, 6, 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    status_ = theme::label(card, &font_m12, true, "");
-    lv_obj_set_pos(status_, 0, 0);
-    lv_obj_t* row = lv_obj_create(card);
-    lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_pos(row, 0, 14);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    lv_obj_set_style_pad_column(row, 3, 0);
-    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
-    big38_ = lv_font_montserrat_38;
-    big38_.fallback = &font_m28;
-    time_ = theme::label(row, &big38_, false, fmt::NO_VALUE);
-    lv_obj_t* s = theme::label(row, &font_m12, true, "s");
+    // Laufende Zeit groß oben links im Diagramm (dort ist die Kurve noch nicht)
+    timeRow_ = lv_obj_create(parent);
+    lv_obj_remove_style_all(timeRow_);
+    lv_obj_set_size(timeRow_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_pos(timeRow_, GX0 + 8, GY0 + 4);
+    lv_obj_set_flex_flow(timeRow_, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(timeRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_set_style_pad_column(timeRow_, 3, 0);
+    lv_obj_remove_flag(timeRow_, LV_OBJ_FLAG_CLICKABLE);
+    time_ = theme::label(timeRow_, &font_v32, false, "");
+    lv_obj_t* s = theme::label(timeRow_, &font_m14, true, "s");
     lv_obj_set_style_pad_bottom(s, 6, 0);
-    track_ = lv_obj_create(card);
-    lv_obj_remove_style_all(track_);
-    lv_obj_set_pos(track_, 0, 62);
-    lv_obj_set_size(track_, CARD_W - 20, 5);
-    lv_obj_set_style_radius(track_, 3, 0);
-    lv_obj_set_style_bg_color(track_, theme::c(theme::BG), 0);
-    lv_obj_set_style_bg_opa(track_, LV_OPA_COVER, 0);
-    fill_ = lv_obj_create(track_);
-    lv_obj_remove_style_all(fill_);
-    lv_obj_set_size(fill_, 0, 5);
-    lv_obj_set_style_radius(fill_, 3, 0);
-    lv_obj_set_style_bg_opa(fill_, LV_OPA_COVER, 0);
-    note_ = theme::label(card, &font_small, true, "");
-    lv_obj_set_pos(note_, 0, 71);
+    sub_ = theme::label(parent, &font_m12, true, "");
+    lv_obj_set_pos(sub_, GX0 + 8, GY0 + 42);
 
-    // Tabelle
-    lv_obj_t* h = theme::label(parent, &font_small, true, "Messung");
-    lv_obj_set_pos(h, TABLE_X, TABLE_Y);
-    colLabel(parent, "letzte", 0, TABLE_Y);
-    colLabel(parent, "beste", 1, TABLE_Y);
-    static const char* const NAMES[3] = {"0" "\xE2\x80\x93" "50 km/h", "0" "\xE2\x80\x93" "100 km/h", "80" "\xE2\x80\x93" "120 km/h"};
+    // Feld READY (groß, Mitte) bzw. GO (klein, oben rechts) bzw. Ergebnis
+    badge_ = lv_obj_create(parent);
+    lv_obj_remove_style_all(badge_);
+    lv_obj_set_style_radius(badge_, 10, 0);
+    lv_obj_set_style_bg_opa(badge_, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(badge_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(badge_, LV_OBJ_FLAG_SCROLLABLE);
+    badgeText_ = theme::label(badge_, &font_v32, false, "");
+    lv_obj_set_style_text_color(badgeText_, theme::c(theme::BG), 0);
+    lv_obj_center(badgeText_);
+
+    // Chips: 0–50 / 0–100 / 80–120 mit letzter Zeit, Bestzeit klein
+    const int32_t w = (BOARD_LCD_HOR_RES - 2 * CHIP_SIDE - 2 * CHIP_GAP) / 3;
     for (int i = 0; i < 3; i++) {
-      const int32_t y = TABLE_Y + 14 + i * ROW_H;
-      lv_obj_t* sep = lv_obj_create(parent);
-      lv_obj_remove_style_all(sep);
-      lv_obj_set_pos(sep, TABLE_X, y);
-      lv_obj_set_size(sep, BOARD_LCD_HOR_RES - 2 * TABLE_X, 1);
-      lv_obj_set_style_bg_color(sep, theme::c(theme::LINE), 0);
-      lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
-      lv_obj_t* n = theme::label(parent, &font_m12, false, NAMES[i]);
-      lv_obj_set_pos(n, TABLE_X, y + 3);
-      last_[i] = colLabel(parent, fmt::NO_VALUE, 0, y + 3, false);
-      best_[i] = colLabel(parent, fmt::NO_VALUE, 1, y + 3, false);
-      lv_obj_set_style_text_color(best_[i], theme::c(theme::GOOD), 0);
-    }
-
-    // Kacheln: Ø Fahrt, Zeit/100 km, Vmax, Spitze kW
-    static const char* const TILE_LABELS[4] = {SYM_AVG " Fahrt", "Zeit/100 km", "Vmax", "Spitze"};
-    const int32_t w = (BOARD_LCD_HOR_RES - 2 * TILE_SIDE - 3 * TILE_GAP) / 4;
-    for (int i = 0; i < 4; i++) {
       lv_obj_t* t = lv_obj_create(parent);
       lv_obj_remove_style_all(t);
-      lv_obj_set_size(t, w, TILE_H);
-      lv_obj_set_pos(t, TILE_SIDE + i * (w + TILE_GAP), theme::CONTENT_H - TILE_BOTTOM - TILE_H);
+      lv_obj_set_size(t, w, CHIP_H);
+      lv_obj_set_pos(t, CHIP_SIDE + i * (w + CHIP_GAP), theme::CONTENT_H - CHIP_BOTTOM - CHIP_H);
       lv_obj_set_style_bg_color(t, theme::c(theme::SURFACE), 0);
       lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
+      lv_obj_set_style_bg_color(t, theme::c(theme::LINE), LV_STATE_PRESSED);
       lv_obj_set_style_radius(t, theme::RADIUS_TILE, 0);
       lv_obj_set_style_pad_hor(t, 6, 0);
-      lv_obj_set_style_pad_ver(t, 2, 0);
-      lv_obj_set_flex_flow(t, LV_FLEX_FLOW_COLUMN);
-      lv_obj_remove_flag(t, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
       lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
-      theme::label(t, &font_small, true, TILE_LABELS[i]);
-      tile_[i] = theme::label(t, &font_m12, false, fmt::NO_VALUE);
+      lv_obj_add_event_cb(t, onChip, LV_EVENT_SHORT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(i)));
+      lv_obj_t* n = theme::label(t, &font_m12, true, NAMES[i]);
+      lv_obj_align(n, LV_ALIGN_TOP_LEFT, 0, 3);
+      best_[i] = theme::label(t, &font_m12, false, "");
+      lv_obj_set_style_text_color(best_[i], theme::c(theme::GOOD), 0);
+      lv_obj_align(best_[i], LV_ALIGN_TOP_RIGHT, 0, 3);
+      last_[i] = theme::label(t, &font_m20, false, fmt::NO_VALUE);
+      lv_obj_align(last_[i], LV_ALIGN_BOTTOM_MID, 0, -2);
     }
   }
 
@@ -154,160 +131,283 @@ class SprintPage : public Page {
     snap_ = s;
     const SprintInfo& sp = s.sprint;
     const bool running = sp.state == perf::State::Running;
+    const bool live = sp.state == perf::State::Waiting;
     const bool done = sp.state == perf::State::Done && s.now - sp.doneAtMs < DONE_SHOW_MS;
-    char t[48];
-    snprintf(t, sizeof(t), "0" "\xE2\x80\x93" "100 km/h " SYM_DOT " %s", running ? "läuft" : done ? "geschafft" : "bereit");
-    setText(status_, shownStatus_, sizeof(shownStatus_), t);
-    const uint32_t c = running ? theme::ACCENT : done ? theme::GOOD : theme::TEXT;
-    if (c != shownColor_) {
-      shownColor_ = c;
-      lv_obj_set_style_text_color(time_, theme::c(c), 0);
-      lv_obj_set_style_text_color(status_, theme::c(running || done ? c : theme::MUTED), 0);
-      lv_obj_set_style_bg_color(fill_, theme::c(done ? theme::GOOD : theme::ACCENT), 0);
-    }
-    const float tm = running ? sp.elapsed : sp.last100;
-    fmt::number(t, sizeof(t), tm, 1);
-    setText(time_, shownTime_, sizeof(shownTime_), t);
-    const float v = s.speed.get(s.now);
-    float frac = (running || done) && !std::isnan(v) ? v / 100.0f : 0.0f;
-    frac = frac < 0 ? 0 : (frac > 1 ? 1 : frac);
-    const int32_t fw = static_cast<int32_t>(std::lround(frac * (CARD_W - 20)));
-    if (fw != shownFill_) {
-      shownFill_ = fw;
-      lv_obj_set_width(fill_, fw);
-    }
-    if (running || done) {
-      char n[12];
-      fmt::number(n, sizeof(n), v, 0);
-      snprintf(t, sizeof(t), "%s km/h", n);
-    } else {
-      snprintf(t, sizeof(t), "Startet aus dem Stand");
-    }
-    setText(note_, shownNote_, sizeof(shownNote_), t);
+    const bool newBest = done && !std::isnan(sp.best100) && std::fabs(sp.best100 - sp.last100) < 0.005f &&
+                         sp.resultKind == perf::Kind::S100 && (std::isnan(sp.resultPrevBest) || sp.last100 <= sp.resultPrevBest);
 
-    // Tabelle: letzte und beste Zeit
+    // Feld: READY im Stand, GO beim Anfahren, Ergebnis nach dem Ziel
+    int mode;  // 0 aus, 1 READY, 2 GO, 3 LIVE, 4 Ergebnis
+    if (done) mode = 4;
+    else if (running) mode = 2;
+    else if (live) mode = 3;
+    else if (sp.standing && s.engineRunning()) mode = 1;
+    else mode = 0;
+    char t[48];
+    if (mode == 4) {
+      secText(t, sizeof(t), sp.last100);
+      if (newBest) {
+        char b[32];
+        snprintf(b, sizeof(b), "%s " SYM_DOT " Best", t);
+        snprintf(t, sizeof(t), "%s", b);
+      }
+    }
+    if (mode != shownMode_ || (mode == 4 && strcmp(t, shownBadge_) != 0)) {
+      shownMode_ = mode;
+      if (mode == 0) {
+        lv_obj_add_flag(badge_, LV_OBJ_FLAG_HIDDEN);
+      } else {
+        lv_obj_remove_flag(badge_, LV_OBJ_FLAG_HIDDEN);
+        const char* bt = mode == 1 ? "READY" : mode == 2 ? "GO" : mode == 3 ? "LIVE" : t;
+        snprintf(shownBadge_, sizeof(shownBadge_), "%s", bt);
+        lv_label_set_text(badgeText_, shownBadge_);
+        const bool small = mode == 2 || mode == 3;
+        lv_obj_set_style_text_font(badgeText_, small ? &font_m14 : (mode == 4 ? &font_m20 : &font_v32), 0);
+        lv_obj_set_style_bg_color(badge_, theme::c(mode == 1 || mode == 4 ? theme::GOOD : (mode == 2 ? theme::WARN : theme::LINE)), 0);
+        lv_obj_set_style_text_color(badgeText_, theme::c(mode == 3 ? theme::TEXT : theme::BG), 0);
+        if (small) {
+          lv_obj_set_size(badge_, GO_W, GO_H);
+          lv_obj_set_pos(badge_, GX1 - GO_W - 4, GY0 + 4);
+        } else {
+          lv_obj_set_size(badge_, mode == 4 ? READY_W + 20 : READY_W, mode == 4 ? 40 : READY_H);
+          lv_obj_set_pos(badge_, (GX0 + GX1) / 2 - (mode == 4 ? READY_W + 20 : READY_W) / 2 + (mode == 4 ? 30 : 0),
+                         mode == 4 ? GY0 + GH - 40 - 12 : GY0 + (GH - READY_H) / 2);
+        }
+        lv_obj_center(badgeText_);
+      }
+    }
+
+    // Laufende Zeit groß (läuft auch bei der Live-Kurve), sonst die letzte 0–100
+    const float tm = (running || live) ? sp.elapsed : (done ? sp.last100 : NAN);
+    if (std::isnan(tm)) {
+      t[0] = '\0';
+    } else {
+      fmt::number(t, sizeof(t), tm, 1);
+    }
+    setText(time_, shownTime_, sizeof(shownTime_), t);
+    if (std::isnan(tm)) lv_obj_add_flag(timeRow_, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_remove_flag(timeRow_, LV_OBJ_FLAG_HIDDEN);
+    const uint32_t tc = running ? theme::WARN : (done ? theme::GOOD : theme::TEXT);
+    if (tc != shownTimeColor_) {
+      shownTimeColor_ = tc;
+      lv_obj_set_style_text_color(time_, theme::c(tc), 0);
+    }
+    if (running || live) {
+      char n[12];
+      fmt::number(n, sizeof(n), s.speed.get(s.now), 0);
+      snprintf(t, sizeof(t), "%s km/h%s", n, live ? " " SYM_DOT " zählt nicht" : "");
+    } else if (mode == 1) {
+      snprintf(t, sizeof(t), "Vollgas aus dem Stand");
+    } else if (mode == 0 && !done) {
+      snprintf(t, sizeof(t), "Startet aus dem Stand");
+    } else {
+      t[0] = '\0';
+    }
+    setText(sub_, shownSub_, sizeof(shownSub_), t);
+
+    // Chips: letzte Zeit groß, beste klein grün
     const float lasts[3] = {sp.last50, running ? NAN : sp.last100, sp.last80120};
     const float bests[3] = {sp.best50, sp.best100, sp.best80120};
     for (int i = 0; i < 3; i++) {
       secText(t, sizeof(t), lasts[i]);
       setText(last_[i], shownLast_[i], sizeof(shownLast_[i]), t);
-      secText(t, sizeof(t), bests[i]);
+      if (std::isnan(bests[i])) {
+        t[0] = '\0';
+      } else {
+        char n[12];
+        secText(n, sizeof(n), bests[i], false);
+        snprintf(t, sizeof(t), "Best %s", n);
+      }
       setText(best_[i], shownBest_[i], sizeof(shownBest_[i]), t);
     }
 
-    // Kacheln
-    const float km = s.tripKm.get(s.now), dur = s.tripDurationS.get(s.now);
-    const float vAvg = (!std::isnan(km) && !std::isnan(dur) && dur > 60) ? km / (dur / 3600.0f) : NAN;
-    char n[12];
-    fmt::number(n, sizeof(n), vAvg, 0);
-    snprintf(t, sizeof(t), std::isnan(vAvg) ? "%s" : "%s km/h", n);
-    setText(tile_[0], shownTile_[0], sizeof(shownTile_[0]), t);
-    if (!std::isnan(vAvg) && vAvg >= 1) {
-      const float h = 100.0f / vAvg;  // Zeit pro 100 km = 100 ÷ Ø Fahrt (A10)
-      int hh = static_cast<int>(h), mm = static_cast<int>(std::lround((h - hh) * 60));
-      if (mm == 60) {
-        hh++;
-        mm = 0;
-      }
-      snprintf(t, sizeof(t), "%d:%02d h", hh, mm);
-    } else {
-      snprintf(t, sizeof(t), "%s", fmt::NO_VALUE);
-    }
-    setText(tile_[1], shownTile_[1], sizeof(shownTile_[1]), t);
-    const float vmax = s.tripVmax.get(s.now);
-    fmt::number(n, sizeof(n), vmax, 0);
-    snprintf(t, sizeof(t), std::isnan(vmax) ? "%s" : "%s km/h", n);
-    setText(tile_[2], shownTile_[2], sizeof(shownTile_[2]), t);
-    const float kw = s.tripKwPeak.get(s.now);
-    fmt::number(n, sizeof(n), kw, 0);
-    snprintf(t, sizeof(t), std::isnan(kw) ? "%s" : "%s kW", n);
-    setText(tile_[3], shownTile_[3], sizeof(shownTile_[3]), t);
-
     // Verlauf neu zeichnen, wenn sich die Messung geändert hat (höchstens 5 Hz)
-    const uint32_t sig = sp.lastTrace.count * 1000u + sp.bestTrace.count + static_cast<uint32_t>(sp.state) * 100000u;
+    const uint32_t sig = sp.lastTrace.count * 1000u + sp.bestTrace.count + static_cast<uint32_t>(sp.state) * 100000u +
+                         ((running || live) ? static_cast<uint32_t>(sp.elapsed * 5) * 1000000u : 0);
     if (sig != drawnSig_ && s.now - lastDraw_ >= cfg::CHART_MIN_REDRAW_MS) {
       drawnSig_ = sig;
       lastDraw_ = s.now;
       lv_obj_invalidate(graph_);
     }
+    updateDetail(s);
   }
 
   void onShow() override { lv_obj_invalidate(graph_); }
 
  private:
-  lv_obj_t* colLabel(lv_obj_t* parent, const char* text, int col, int32_t y, bool small = true) {
-    lv_obj_t* l = theme::label(parent, small ? &font_small : &font_m12, small, text);
-    lv_obj_set_width(l, COL_W);
-    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_pos(l, BOARD_LCD_HOR_RES - TABLE_X - (2 - col) * COL_W - (1 - col) * COL_GAP, y);
-    return l;
-  }
-
   static void setText(lv_obj_t* l, char* shown, size_t size, const char* t) {
     if (strcmp(shown, t) == 0) return;
     snprintf(shown, size, "%s", t);
     lv_label_set_text(l, t);
   }
 
+  // ---------- Detail einer Messung (Tippen auf einen Chip) ----------
+  static void onChip(lv_event_t* e) {
+    if (overlay::isOpen()) return;
+    self->openDetail(static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e))));
+  }
+  static void onDetailClose(lv_event_t*) { overlay::close(); }
+
+  void openDetail(int i) {
+    char title[32];
+    snprintf(title, sizeof(title), "%s km/h", NAMES[i]);
+    lv_obj_t* card = overlay::open("");
+    detailGen_ = overlay::generation();
+    detailIdx_ = i;
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(card, onDetailClose, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(lv_obj_get_parent(card), onDetailClose, LV_EVENT_CLICKED, nullptr);
+    lv_obj_set_layout(card, LV_LAYOUT_NONE);
+    lv_obj_t* t = theme::label(card, &font_m14, false, title);
+    lv_obj_set_pos(t, 0, 0);
+    lv_obj_t* l = theme::label(card, &font_m12, true, "letzte Messung");
+    lv_obj_set_pos(l, 0, 24);
+    dLast_ = theme::label(card, &font_v40, false, "");
+    lv_obj_set_pos(dLast_, 0, 38);
+    lv_obj_t* b = theme::label(card, &font_m12, true, "beste");
+    lv_obj_set_pos(b, 160, 24);
+    dBest_ = theme::label(card, &font_v40, false, "");
+    lv_obj_set_style_text_color(dBest_, theme::c(theme::GOOD), 0);
+    lv_obj_set_pos(dBest_, 160, 38);
+    dDiff_ = theme::label(card, &font_m20, false, "");
+    lv_obj_set_pos(dDiff_, 0, 96);
+    lv_obj_t* note = theme::label(card, &font_m12, true, "Tippen schließt");
+    lv_obj_align(note, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    dShown_[0] = '\0';
+    updateDetail(snap_);
+  }
+
+  void updateDetail(const CarSnapshot& s) {
+    if (!overlay::isOpen() || overlay::generation() != detailGen_) return;
+    const SprintInfo& sp = s.sprint;
+    const float lasts[3] = {sp.last50, sp.last100, sp.last80120};
+    const float bests[3] = {sp.best50, sp.best100, sp.best80120};
+    const float l = lasts[detailIdx_], b = bests[detailIdx_];
+    char a[16], c[16], d[48];
+    secText(a, sizeof(a), l);
+    secText(c, sizeof(c), b);
+    if (std::isnan(l) || std::isnan(b)) {
+      snprintf(d, sizeof(d), "Noch keine Messung");
+    } else if (l - b < 0.05f) {
+      snprintf(d, sizeof(d), "Das ist deine Bestzeit");
+    } else {
+      char n[12];
+      fmt::number(n, sizeof(n), l - b, 1);
+      snprintf(d, sizeof(d), "+%s s zur Bestzeit", n);
+    }
+    char all[96];
+    snprintf(all, sizeof(all), "%s|%s|%s", a, c, d);
+    if (strcmp(all, dShown_) == 0) return;
+    snprintf(dShown_, sizeof(dShown_), "%s", all);
+    lv_label_set_text(dLast_, a);
+    lv_label_set_text(dBest_, c);
+    lv_label_set_text(dDiff_, d);
+    lv_obj_set_style_text_color(dDiff_, theme::c(std::isnan(l) || std::isnan(b) ? theme::MUTED : (l - b < 0.05f ? theme::GOOD : theme::WARN)), 0);
+  }
+
+  // ---------- Diagramm ----------
   static void onDraw(lv_event_t* e) {
     static_cast<SprintPage*>(lv_event_get_user_data(e))->draw(lv_event_get_layer(e), lv_event_get_target_obj(e));
   }
 
-  void drawTrace(lv_layer_t* layer, const perf::Trace& tr, int32_t ox, int32_t oy, float tMax, uint32_t col, bool dashed) {
-    int32_t px = 0, py = 0;
+  static int32_t px(int32_t ox, float tS, float tMax) {
+    return ox + GX0 + static_cast<int32_t>(std::lround(tS / tMax * (GX1 - GX0)));
+  }
+  static int32_t py(int32_t oy, float v) {
+    return oy + GY0 + GH - static_cast<int32_t>(std::lround(v / 100.0f * GH));
+  }
+
+  void drawTrace(lv_layer_t* layer, const perf::Trace& tr, int32_t ox, int32_t oy, float tMax, uint32_t col, int32_t w,
+                 bool dashed) {
+    int32_t lx = 0, ly = 0;
     for (int i = 0; i < tr.count; i++) {
-      const int32_t x = ox + GX0 + static_cast<int32_t>(std::lround(tr.timeAt(i) / tMax * (GX1 - GX0)));
-      const int32_t y = oy + GY0 + GH - static_cast<int32_t>(std::lround(i * perf::TRACE_STEP_KMH / 100.0f * GH));
-      if (i > 0 && (!dashed || i % 2 == 1)) line(layer, px, py, x, y, col, 2);
-      px = x;
-      py = y;
+      const int32_t x = px(ox, tr.timeAt(i), tMax);
+      const int32_t y = py(oy, i * perf::TRACE_STEP_KMH);
+      if (i > 0 && (!dashed || i % 2 == 1)) line(layer, lx, ly, x, y, col, w);
+      lx = x;
+      ly = y;
     }
   }
 
   void draw(lv_layer_t* layer, lv_obj_t* obj) {
     lv_area_t a;
     lv_obj_get_coords(obj, &a);
+    const int32_t ox = a.x1, oy = a.y1;
     const SprintInfo& sp = snap_.sprint;
+    const bool moving = sp.state == perf::State::Running || sp.state == perf::State::Waiting;
     float tMax = G_MIN_TMAX_S;
     for (const perf::Trace* tr : {&sp.lastTrace, &sp.bestTrace})
       if (tr->count > 0 && tr->timeAt(tr->count - 1) > tMax) tMax = tr->timeAt(tr->count - 1);
+    if (moving && !std::isnan(sp.elapsed) && sp.elapsed + 1 > tMax) tMax = sp.elapsed + 1;
+    tMax = std::ceil(tMax / 2) * 2;
+
+    // Raster: Tempo 0/50/100, Zeit alle 2 s (bzw. 5 s)
     char t[16];
-    for (int v = 0; v <= 100; v += 50) {
-      const int32_t y = a.y1 + GY0 + GH - v * GH / 100;
-      line(layer, a.x1 + GX0, y, a.x1 + GX1, y, theme::LINE, 1);
-      snprintf(t, sizeof(t), "%d", v);
-      text(layer, t, a.x1 + GX0 - 24, y - 6, 20, LV_TEXT_ALIGN_RIGHT, theme::MUTED);
+    for (int v = 0; v <= 100; v += 25) {
+      const int32_t y = py(oy, static_cast<float>(v));
+      line(layer, ox + GX0, y, ox + GX1, y, theme::LINE, 1);
+      if (v % 50 == 0) {
+        snprintf(t, sizeof(t), "%d", v);
+        text(layer, t, ox, y - 7, GX0 - 5, LV_TEXT_ALIGN_RIGHT, theme::MUTED);
+      }
     }
-    drawTrace(layer, sp.bestTrace, a.x1, a.y1, tMax, theme::GOOD, true);
-    drawTrace(layer, sp.lastTrace, a.x1, a.y1, tMax, theme::ACCENT, false);
-    text(layer, "0", a.x1 + GX0, a.y1 + GY0 + GH + 2, 20, LV_TEXT_ALIGN_LEFT, theme::MUTED);
-    fmt::number(t, sizeof(t), tMax, 0);
-    char u[20];
-    snprintf(u, sizeof(u), "%s s", t);
-    text(layer, u, a.x1 + GX1 - 40, a.y1 + GY0 + GH + 2, 40, LV_TEXT_ALIGN_RIGHT, theme::MUTED);
-    text(layer, "km/h " SYM_DOT, a.x1 + GX0, a.y1 + GY0 - 13, 40, LV_TEXT_ALIGN_LEFT, theme::MUTED);
-    text(layer, "letzte", a.x1 + GX0 + 34, a.y1 + GY0 - 13, 40, LV_TEXT_ALIGN_LEFT, theme::ACCENT);
-    text(layer, SYM_DOT " beste", a.x1 + GX0 + 64, a.y1 + GY0 - 13, 50, LV_TEXT_ALIGN_LEFT, theme::GOOD);
+    const int step = tMax > 20 ? 5 : 2;
+    for (int s = step; s <= static_cast<int>(tMax); s += step) {
+      const int32_t x = px(ox, static_cast<float>(s), tMax);
+      line(layer, x, py(oy, 0), x, py(oy, 0) + 3, theme::MUTED, 1);
+      snprintf(t, sizeof(t), "%d", s);
+      text(layer, t, x - 15, py(oy, 0) + 3, 30, LV_TEXT_ALIGN_CENTER, theme::MUTED);
+    }
+    text(layer, "km/h", ox, oy + GY0 - 6, GX0 - 3, LV_TEXT_ALIGN_RIGHT, theme::MUTED);
+
+    // Beste grün gestrichelt, letzte in accent, laufende orange und dicker mit Punkt an der Spitze
+    drawTrace(layer, sp.bestTrace, ox, oy, tMax, theme::GOOD, 2, true);
+    if (moving) {
+      drawTrace(layer, sp.lastTrace, ox, oy, tMax, theme::WARN, 3, false);
+      const float v = snap_.speed.get(snap_.now);
+      if (!std::isnan(v) && !std::isnan(sp.elapsed) && sp.lastTrace.count > 0) {
+        const int32_t x = px(ox, sp.elapsed, tMax), y = py(oy, v > 100 ? 100 : v);
+        const int32_t lx = px(ox, sp.lastTrace.timeAt(sp.lastTrace.count - 1), tMax);
+        const int32_t ly = py(oy, (sp.lastTrace.count - 1) * perf::TRACE_STEP_KMH);
+        const uint32_t col = theme::WARN;
+        line(layer, lx, ly, x, y, col, 3);
+        lv_draw_rect_dsc_t d;
+        lv_draw_rect_dsc_init(&d);
+        d.radius = LV_RADIUS_CIRCLE;
+        d.bg_color = theme::c(col);
+        d.bg_opa = LV_OPA_COVER;
+        lv_area_t da = {x - 4, y - 4, x + 4, y + 4};
+        lv_draw_rect(layer, &d, &da);
+      }
+    } else {
+      drawTrace(layer, sp.lastTrace, ox, oy, tMax, sp.state == perf::State::Done ? theme::GOOD : theme::ACCENT, 3, false);
+    }
+    // Legende rechts unten im Diagramm
+    text(layer, "\xE2\x80\x94 letzte", ox + GX1 - 120, py(oy, 0) - 16, 60, LV_TEXT_ALIGN_RIGHT, theme::ACCENT);
+    text(layer, "- - beste", ox + GX1 - 56, py(oy, 0) - 16, 54, LV_TEXT_ALIGN_RIGHT, theme::GOOD);
   }
 
-  lv_font_t big38_;
   lv_obj_t* graph_ = nullptr;
-  lv_obj_t* status_ = nullptr;
+  lv_obj_t* timeRow_ = nullptr;
   lv_obj_t* time_ = nullptr;
-  lv_obj_t* track_ = nullptr;
-  lv_obj_t* fill_ = nullptr;
-  lv_obj_t* note_ = nullptr;
+  lv_obj_t* sub_ = nullptr;
+  lv_obj_t* badge_ = nullptr;
+  lv_obj_t* badgeText_ = nullptr;
   lv_obj_t* last_[3] = {};
   lv_obj_t* best_[3] = {};
-  lv_obj_t* tile_[4] = {};
-  char shownStatus_[48] = "";
+  lv_obj_t* dLast_ = nullptr;
+  lv_obj_t* dBest_ = nullptr;
+  lv_obj_t* dDiff_ = nullptr;
+  uint32_t detailGen_ = 0xFFFFFFFF;
+  int detailIdx_ = 0;
+  char dShown_[96] = "";
+  int shownMode_ = -1;
+  char shownBadge_[32] = "";
   char shownTime_[16] = "";
-  char shownNote_[32] = "";
+  char shownSub_[48] = "";
+  uint32_t shownTimeColor_ = 0xFFFFFFFF;
   char shownLast_[3][16] = {};
-  char shownBest_[3][16] = {};
-  char shownTile_[4][20] = {};
-  uint32_t shownColor_ = 0xFFFFFFFF;
-  int32_t shownFill_ = -1;
+  char shownBest_[3][20] = {};
   uint32_t drawnSig_ = 0xFFFFFFFF;
   uint32_t lastDraw_ = 0;
   CarSnapshot snap_;

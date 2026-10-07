@@ -120,6 +120,10 @@ struct SprintInfo {
   float best50 = NAN, best100 = NAN, best80120 = NAN;
   perf::Trace lastTrace = {};
   perf::Trace bestTrace = {};
+  bool standing = true;         // steht (Sprint-Seite: "READY")
+  uint16_t resultSeq = 0;       // zählt bei jedem neuen Ergebnis hoch (Sport: Urteil)
+  perf::Kind resultKind = perf::Kind::None;
+  float resultS = NAN, resultPrevBest = NAN;
 };
 
 struct CarState {

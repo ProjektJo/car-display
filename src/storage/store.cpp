@@ -25,6 +25,8 @@ constexpr const char* NVS_NAMESPACE = "cardisp";
 constexpr const char* NVS_LAST_PROFILE = "last_prof";
 constexpr const char* NVS_UI = "ui1";  // Kacheln, Großanzeige, Diagramme (UiSettings, Version 1)
 constexpr size_t JSON_MAX = 1536;
+// Kleinste gültige Länge von UiSettings: Stand bis goalFix (Firmware vom 6.10.2026)
+constexpr size_t UI_MIN_BYTES = offsetof(UiSettings, goalFix) + sizeof(float);
 
 // Kopf der Ringdateien (Fahrtenbuch, Tankfüllungen)
 struct RingHeader {
@@ -249,11 +251,16 @@ bool loadUi(UiSettings& ui) {
   Preferences prefs;
   if (!prefs.begin(NVS_NAMESPACE, true)) return false;
   UiSettings tmp;
-  const bool ok = prefs.getBytesLength(NVS_UI) == sizeof(tmp) && prefs.getBytes(NVS_UI, &tmp, sizeof(tmp)) == sizeof(tmp);
+  // Neue Felder werden nur hinten angehängt: Ein kürzerer Eintrag aus einer älteren Firmware wird
+  // übernommen, der Rest behält die Standardwerte (so bleiben z. B. Drehung und Helligkeit erhalten).
+  const size_t len = prefs.getBytesLength(NVS_UI);
+  const bool ok = len >= UI_MIN_BYTES && len <= sizeof(tmp) && prefs.getBytes(NVS_UI, &tmp, len) == len;
   prefs.end();
   if (!ok) return false;
   // Texte sicher abschließen (Datei könnte aus einer anderen Version stammen)
   for (auto& t : tmp.tiles) t[sizeof(t) - 1] = '\0';
+  for (auto& p : tmp.fields)
+    for (auto& f : p) f[sizeof(f) - 1] = '\0';
   for (auto& s : tmp.series) s[sizeof(s) - 1] = '\0';
   ui = tmp;
   return true;

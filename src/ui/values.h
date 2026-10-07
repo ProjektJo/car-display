@@ -10,6 +10,8 @@ namespace values {
 
 enum class Key : uint8_t {
   Speed, Rpm, Inst, Avg10, Avg100, AvgTank, AvgProfile, Pedal, Range, Coolant, Volt, Load, Map, Iat, Gear,
+  // 7.10.2026 für die frei belegbaren unteren Felder (nur hinten anhängen: Großanzeige zählt die Reihenfolge)
+  EcoScore, CutSaved, Braked, AvgTrip, TripKm, TripTime, AvgSpeed, Vmax, KwPeak, Power, TankL, TripCost,
   COUNT
 };
 constexpr int COUNT = static_cast<int>(Key::COUNT);

@@ -12,6 +12,7 @@
 #include "hw/touch.h"
 #include "ui/eco_popups.h"
 #include "ui/history.h"
+#include "ui/value_ui.h"
 #include "calc/perf.h"
 #include "ui/live.h"
 #include "ui/values.h"
@@ -338,6 +339,7 @@ void task(void*) {
           break;
       }
       history::tick(snap);
+      valueui::tick(snap);  // Detail-Fenster der Kacheln und unteren Felder
       live::tick(snap);
       // Helligkeit "Auto (GPS)": Sonnenstand mit 15 min Übergang (A9), einmal je Sekunde
       if (uiprefs::get().dayNight == 2 && snap.now / 1000 != lastAutoBright) {

@@ -1,5 +1,6 @@
 #include "vehicle_calc.h"
 
+#include <algorithm>
 #include <cstring>
 #include <initializer_list>
 
@@ -64,6 +65,7 @@ void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t now
   levelSmooth_ = NAN;
   for (int i = 0; i < WIN; i++) winDt_[i] = 0;
   pedalClosed_ = NAN;
+  pedalMax_ = NAN;
   pedalSmooth_ = NAN;
   speedT_ = 0;
   speedPrev_ = NAN;
@@ -298,6 +300,14 @@ void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool eng
   if (engineOn && !std::isnan(pedal) && (std::isnan(pedalClosed_) || pedal < pedalClosed_)) pedalClosed_ = pedal;
   const bool pedalClosed = std::isnan(pedal) || (!std::isnan(pedalClosed_) && pedal <= pedalClosed_ + cfg::PEDAL_CLOSED_MARGIN_PCT);
   out_.pedalPct = pedal;
+  // Für den Sprint: Pedal relativ zum gelernten Bereich (leer … Vollgas). Viele Autos melden bei Vollgas
+  // nur 70–80 %; bis ein höherer Wert gesehen wurde, gilt "leer + 55 %" als Vollgas.
+  if (!std::isnan(pedal) && (std::isnan(pedalMax_) || pedal > pedalMax_)) pedalMax_ = pedal;
+  float pedalRel = NAN;
+  if (!std::isnan(pedal) && !std::isnan(pedalClosed_)) {
+    const float full = std::max(pedalMax_, pedalClosed_ + cfg::SPRINT_PEDAL_SPAN_MIN);
+    pedalRel = (pedal - pedalClosed_) / (full - pedalClosed_) * 100.0f;
+  }
 
   // Beschleunigung aus zwei Tempo-Messungen, gefiltert
   if (std::isnan(speed)) {
@@ -313,7 +323,7 @@ void VehicleCalc::stepEco(const CarState& s, uint32_t nowMs, float dtS, bool eng
     speedPrev_ = speed;
     speedT_ = s.speed.t;
     // Sprintmessung mit jeder neuen Tempo-Messung (A10)
-    sprint_.update(s.speed.t, speed, pedal, rpm);
+    sprint_.update(s.speed.t, speed, pedalRel, accel_);
     if (sprint_.takeBestChanged()) {
       st_.sprintBest = sprint_.best();
       saveNow_ = true;

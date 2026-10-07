@@ -20,4 +20,12 @@ struct UiSettings {
   uint8_t goalMode = 0;                 // Spar-Ziel: 0 aus, 1 auto, 2 fest (Z 13)
   uint8_t flip180 = 0;                  // Bild und Touch um 180° gedreht (Einbaulage im Auto)
   float goalFix = 5.5f;                 // festes Ziel 3,0–7,0
+  // --- ab hier angehängt (7.10.2026); ältere, kürzere Einstellungen werden übernommen (store::loadUi) ---
+  // Untere Felder je Seite (Eco, Sport, Sprint), frei belegbar per langem Drücken (Jos Wunsch)
+  static constexpr int FIELD_PAGES = 3, FIELDS = 4;
+  char fields[FIELD_PAGES][FIELDS][12] = {
+      {"eco", "cutSaved", "braked", ""},
+      {"avgSpeed", "tripKm", "tripTime", "power"},
+      {"vmax", "kwPeak", "avgSpeed", "tripKm"},
+  };
 };

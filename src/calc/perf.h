@@ -31,11 +31,14 @@ struct Best {
 };
 
 enum class State : uint8_t {
-  Ready,     // bereit: wartet auf das Anfahren
-  Waiting,   // rollt, Sprint noch nicht erkannt (höchstens 3 s, sonst still verworfen)
-  Running,   // 0–100 läuft
+  Ready,     // bereit: steht bzw. wartet auf das nächste Anfahren aus dem Stand
+  Waiting,   // rollt aus dem Stand, Live-Kurve läuft, (noch) kein Sprint: zählt nicht
+  Running,   // Sprint erkannt, 0–100 läuft und zählt
   Done,      // Ziel erreicht
 };
+
+// Letztes Ergebnis (für das Urteil auf der Sport-Seite)
+enum class Kind : uint8_t { None, S50, S100, S80120 };
 
 class SprintMeter {
  public:
@@ -44,14 +47,16 @@ class SprintMeter {
   void setBest(const Best& b) { best_ = b; }
   const Best& best() const { return best_; }
 
-  // Je neuer Tempo-Messung (Zeitpunkt der Messung): Tempo, Gaspedal (ersatzweise Drosselklappe), Drehzahl
-  void update(uint32_t tMs, float speedKmh, float pedalPct, float rpm);
+  // Je neuer Tempo-Messung (Zeitpunkt der Messung): Tempo, Gaspedal relativ zum gelernten Bereich
+  // (0 = leer, 100 = Vollgas; NAN = unbekannt) und Beschleunigung m/s² (gefiltert, NAN = unbekannt)
+  void update(uint32_t tMs, float speedKmh, float pedalRelPct, float accelMs2);
 
   State state() const { return state_; }
   // Sprint erkannt (Vollgas aus dem Stand): zählt bei jedem neuen Sprint hoch (Auto-Sprint)
   uint16_t launchSeq() const { return launchSeq_; }
-  // Messung aktiv (Scheduler fragt dann nur Tempo, Drehzahl und Gas ab)
+  // Messung aktiv (Scheduler fragt dann nur Tempo, Drehzahl und Gas ab); im Stand bereit
   bool active() const { return state_ == State::Waiting || state_ == State::Running || run80_; }
+  bool standing() const { return standing_; }
   bool run80() const { return run80_; }
   // Laufende Zeit 0–100 in s (Running), sonst NAN
   float elapsed(uint32_t nowMs) const;
@@ -60,13 +65,19 @@ class SprintMeter {
   float last100() const { return last100_; }
   float last80120() const { return last80120_; }
   uint32_t doneAtMs() const { return doneAt_; }
-  // Verlauf der laufenden bzw. letzten gültigen Messung
-  const Trace& lastTrace() const { return state_ == State::Running ? cur_ : trace_; }
+  // Verlauf der laufenden (auch Live ohne Sprint) bzw. letzten gültigen Messung
+  const Trace& lastTrace() const { return state_ == State::Running || state_ == State::Waiting ? cur_ : trace_; }
+  // Jedes neue Ergebnis zählt resultSeq hoch; dazu Art, Zeit und die Bestzeit davor (NAN = keine)
+  uint16_t resultSeq() const { return resultSeq_; }
+  Kind resultKind() const { return resultKind_; }
+  float resultS() const { return resultS_; }
+  float resultPrevBest() const { return resultPrevBest_; }
   // true einmal nach einer neuen Bestzeit (zum Speichern)
   bool takeBestChanged();
 
  private:
   void abort();
+  void result(Kind k, float s, float& best);
 
   State state_ = State::Ready;
   Best best_ = {};
@@ -81,7 +92,7 @@ class SprintMeter {
   uint32_t prevT_ = 0;
   float prevV_ = NAN;
   float vTop_ = 0;
-  uint32_t lowSince_ = 0;      // Gaspedal unter 50 % seit
+  bool standing_ = true;
   float t50_ = NAN;            // laufende Messung
   uint32_t doneAt_ = 0;
   Trace trace_ = {};           // letzte gültige Messung
@@ -92,7 +103,10 @@ class SprintMeter {
   bool run80_ = false;
   uint32_t start80_ = 0;
   float vTop80_ = 0;
-  uint32_t low80Since_ = 0;
+  // letztes Ergebnis
+  uint16_t resultSeq_ = 0;
+  Kind resultKind_ = Kind::None;
+  float resultS_ = NAN, resultPrevBest_ = NAN;
 };
 
 // Auto-Sprint (A10): wechselt bei einem erkannten Sprint zur Sprint-Seite und kehrt zurück

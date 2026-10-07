@@ -13,6 +13,11 @@ LV_FONT_DECLARE(font_m48)  // groß
 LV_FONT_DECLARE(font_d72)  // Großanzeige, nur Ziffern , . - / : und –
 // Kleine Schrift 10 px (LVGL-Montserrat, nur ASCII); fehlende Zeichen (Umlaute, Symbole) aus font_m12
 extern lv_font_t font_small;
+// Größere Zahlen (7.10.2026, Jos Wunsch "Zahlen zu klein"): LVGL-Montserrat (nur ASCII), Umlaute und Symbole
+// aus den eigenen Schriften gleicher Größenordnung
+extern lv_font_t font_v24;  // Werte der unteren Felder
+extern lv_font_t font_v32;  // große Werte
+extern lv_font_t font_v40;  // sehr große Werte (Tempo Sport, Detail)
 
 namespace theme {
 

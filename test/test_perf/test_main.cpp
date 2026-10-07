@@ -1,6 +1,7 @@
 // Sprintmessung und Auto-Sprint (A10): Prüfwerte aus dem Master-Prompt
 #include "calc/perf.h"
 
+#include <cmath>
 #include <unity.h>
 
 void setUp() {}
@@ -8,19 +9,20 @@ void tearDown() {}
 
 using perf::State;
 
-// Fahrt mit 8 Messungen je Sekunde: Stand, dann gleichmäßige Beschleunigung accel km/h je s
+// Fahrt mit 8 Messungen je Sekunde: Stand, dann gleichmäßige Beschleunigung accel km/h je s.
+// Pedal relativ (0 leer … 100 Vollgas), die Beschleunigung geht in m/s² mit.
 struct Drive {
   perf::SprintMeter m;
   uint32_t t = 1000;
   float v = 0;
-  void step(float accelKmhS, float pedal, float rpm) {
+  void step(float accelKmhS, float pedal) {
     t += 125;
     v += accelKmhS * 0.125f;
     if (v < 0) v = 0;
-    m.update(t, v, pedal, rpm);
+    m.update(t, v, pedal, accelKmhS / 3.6f);
   }
-  void stand(float seconds, float pedal = 0, float rpm = 800) {
-    for (int i = 0; i < static_cast<int>(seconds * 8); i++) step(0, pedal, rpm);
+  void stand(float seconds, float pedal = 0) {
+    for (int i = 0; i < static_cast<int>(seconds * 8); i++) step(0, pedal);
   }
 };
 
@@ -28,42 +30,65 @@ struct Drive {
 void test_sprint_valid() {
   Drive d;
   d.stand(1.2f);
-  d.stand(0.5f, 98, 3800);  // hochdrehen im Stand: Sprint erkannt
+  d.stand(0.5f, 98);  // Vollgas im Stand: Sprint erkannt
   TEST_ASSERT_EQUAL_UINT16(1, d.m.launchSeq());
-  while (d.v < 101) d.step(8.0f, 98, 4000);  // 0–100 in 12,5 s
+  while (d.v < 101) d.step(8.0f, 98);  // 0–100 in 12,5 s
   TEST_ASSERT_EQUAL_INT((int)State::Done, (int)d.m.state());
   TEST_ASSERT_FLOAT_WITHIN(0.2f, 12.5f, d.m.last100());
   TEST_ASSERT_FLOAT_WITHIN(0.2f, 6.25f, d.m.last50());
   TEST_ASSERT_FLOAT_WITHIN(0.01f, d.m.last100(), d.m.best().s100);
   TEST_ASSERT_TRUE(d.m.takeBestChanged());
   TEST_ASSERT_EQUAL_UINT8(perf::TRACE_POINTS, d.m.lastTrace().count);
+  TEST_ASSERT_EQUAL_UINT16(2, d.m.resultSeq());  // 0–50 und 0–100
+  TEST_ASSERT_EQUAL_INT((int)perf::Kind::S100, (int)d.m.resultKind());
+  TEST_ASSERT_FLOAT_IS_NAN(d.m.resultPrevBest());
+}
+
+// Ohne Pedalwert: kräftige Beschleunigung (12 km/h je s) zählt als Sprint
+void test_sprint_by_accel() {
+  Drive d;
+  d.stand(1.5f, NAN);
+  while (d.v < 101) d.step(12.0f, NAN);
+  TEST_ASSERT_EQUAL_UINT16(1, d.m.launchSeq());
+  TEST_ASSERT_EQUAL_INT((int)State::Done, (int)d.m.state());
+  TEST_ASSERT_FLOAT_WITHIN(0.2f, 8.33f, d.m.last100());
+}
+
+// Normales Anfahren: Live-Kurve läuft (Waiting), zählt aber nicht
+void test_sprint_live_curve() {
+  Drive d;
+  d.stand(2.0f);
+  while (d.v < 30) d.step(5.0f, 45);
+  TEST_ASSERT_EQUAL_INT((int)State::Waiting, (int)d.m.state());
+  TEST_ASSERT_TRUE(d.m.lastTrace().count >= 6);
+  TEST_ASSERT_TRUE(d.m.active());
 }
 
 // Normales Anfahren mit 45 % wird still verworfen
 void test_sprint_normal_start_discarded() {
   Drive d;
   d.stand(2.0f);
-  while (d.v < 100) d.step(5.0f, 45, 2500);
+  while (d.v < 100) d.step(5.0f, 45);
   TEST_ASSERT_EQUAL_UINT16(0, d.m.launchSeq());
   TEST_ASSERT_EQUAL_INT((int)State::Ready, (int)d.m.state());
   TEST_ASSERT_FLOAT_IS_NAN(d.m.last100());
   TEST_ASSERT_FLOAT_IS_NAN(d.m.best().s100);
 }
 
-// Gas 0,6 s unter 50 % (Schalten) bricht nicht ab, 1,6 s bricht ab
+// Schaltpause ohne Gas bricht nicht ab; länger als 30 s bis 100 bricht ab
 void test_sprint_shift_pause() {
   Drive d;
   d.stand(1.5f);
-  while (d.v < 30) d.step(10.0f, 98, 4000);
-  for (int i = 0; i < 5; i++) d.step(0, 4, 2500);  // 0,625 s Schaltpause
+  while (d.v < 30) d.step(10.0f, 98);
+  for (int i = 0; i < 5; i++) d.step(0, 0);  // 0,625 s Schaltpause
   TEST_ASSERT_EQUAL_INT((int)State::Running, (int)d.m.state());
-  while (d.v < 101) d.step(10.0f, 98, 4000);
+  while (d.v < 101) d.step(10.0f, 98);
   TEST_ASSERT_EQUAL_INT((int)State::Done, (int)d.m.state());
 
   Drive e;
   e.stand(1.5f);
-  while (e.v < 30) e.step(10.0f, 98, 4000);
-  for (int i = 0; i < 14; i++) e.step(0, 4, 2500);  // 1,75 s (Messung alle 0,125 s)
+  while (e.v < 30) e.step(10.0f, 98);
+  for (int i = 0; i < 8 * 31; i++) e.step(0, 20);  // 31 s bei 30 km/h
   TEST_ASSERT_EQUAL_INT((int)State::Ready, (int)e.m.state());
 }
 
@@ -71,19 +96,31 @@ void test_sprint_shift_pause() {
 void test_sprint_speed_drop() {
   Drive d;
   d.stand(1.5f);
-  while (d.v < 40) d.step(10.0f, 98, 4000);
-  for (int i = 0; i < 8; i++) d.step(-4.0f, 98, 4000);  // −4 km/h
+  while (d.v < 40) d.step(10.0f, 98);
+  for (int i = 0; i < 8; i++) d.step(-4.0f, 98);  // −4 km/h
   TEST_ASSERT_EQUAL_INT((int)State::Ready, (int)d.m.state());
 }
 
-// 80–120: startet beim Durchfahren von 80 mit Gas ≥ 85 %
+// 80–120: startet beim Durchfahren von 80 mit Gas ≥ 80 % oder ab 1,5 m/s²
 void test_sprint_80_120() {
   Drive d;
   d.stand(1.0f);
-  while (d.v < 70) d.step(5.0f, 40, 2500);
-  while (d.v < 121) d.step(4.0f, 95, 4500);  // 80–120 in 10 s
+  while (d.v < 70) d.step(5.0f, 40);
+  while (d.v < 121) d.step(4.0f, 95);  // 80–120 in 10 s
   TEST_ASSERT_FLOAT_WITHIN(0.2f, 10.0f, d.m.last80120());
   TEST_ASSERT_FALSE(d.m.run80());
+
+  Drive e;  // ohne Pedal, 4 km/h je s = 1,1 m/s²: keine Messung
+  e.stand(1.0f);
+  while (e.v < 70) e.step(5.0f, NAN);
+  while (e.v < 121) e.step(4.0f, NAN);
+  TEST_ASSERT_FLOAT_IS_NAN(e.m.last80120());
+
+  Drive f;  // ohne Pedal, 6 km/h je s = 1,7 m/s²: Messung
+  f.stand(1.0f);
+  while (f.v < 70) f.step(5.0f, NAN);
+  while (f.v < 121) f.step(6.0f, NAN);
+  TEST_ASSERT_FLOAT_WITHIN(0.2f, 6.67f, f.m.last80120());
 }
 
 // Auto-Sprint: Ziel erreicht -> Rücksprung nach 4 s; manueller Seitenwechsel hebt ihn auf
@@ -138,6 +175,8 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(test_sprint_valid);
   RUN_TEST(test_sprint_normal_start_discarded);
+  RUN_TEST(test_sprint_by_accel);
+  RUN_TEST(test_sprint_live_curve);
   RUN_TEST(test_sprint_shift_pause);
   RUN_TEST(test_sprint_speed_drop);
   RUN_TEST(test_sprint_80_120);

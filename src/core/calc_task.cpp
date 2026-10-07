@@ -209,6 +209,11 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
       si.best80120 = m.best().s80120;
       si.lastTrace = m.lastTrace();
       si.bestTrace = m.best().trace100;
+      si.standing = m.standing();
+      si.resultSeq = m.resultSeq();
+      si.resultKind = m.resultKind();
+      si.resultS = m.resultS();
+      si.resultPrevBest = m.resultPrevBest();
     }
     s.hasLastTrip = active && vc.state().hasLastTrip;
     if (s.hasLastTrip) s.lastTrip = vc.state().lastTrip;

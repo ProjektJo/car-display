@@ -38,6 +38,18 @@ const Def DEFS[COUNT] = {
     {"map", "Saugrohr", "kPa", 0, Series::None},
     {"iat", "Ansaugluft", SYM_DEG "C", 0, Series::None},
     {"gear", "Gang", "", 0, Series::None},
+    {"eco", "Eco-Score", "", 0, Series::None},
+    {"cutSaved", "Schub gespart", "l", 2, Series::None},
+    {"braked", "Gebremst", "l", 2, Series::None},
+    {"avgTrip", SYM_AVG " Fahrt", "l/100", 1, Series::None},
+    {"tripKm", "Strecke", "km", 1, Series::None},
+    {"tripTime", "Fahrzeit", "h", 0, Series::None},
+    {"avgSpeed", SYM_AVG " Tempo", "km/h", 0, Series::None},
+    {"vmax", "Vmax", "km/h", 0, Series::None},
+    {"kwPeak", "Spitze", "kW", 0, Series::None},
+    {"power", "Leistung", "kW", 0, Series::None},
+    {"tankL", "Tankinhalt", "l", 1, Series::None},
+    {"tripCost", "Kosten Fahrt", "\xE2\x82\xAC", 2, Series::None},
 };
 
 struct SeriesDef {
@@ -104,6 +116,22 @@ float value(Key k, const CarSnapshot& s) {
     case Key::Map: return s.map.get(n);
     case Key::Iat: return s.iat.get(n);
     case Key::Gear: return s.gear;
+    case Key::EcoScore: return s.ecoScore.get(n);
+    case Key::CutSaved: return s.cutSavedL.get(n);
+    case Key::Braked: return s.brakedL.get(n);
+    case Key::AvgTrip: return s.avgTrip.get(n);
+    case Key::TripKm: return s.tripKm.get(n);
+    case Key::TripTime: return s.tripDurationS.get(n);
+    case Key::AvgSpeed: {
+      // Ø Tempo der Fahrt = Strecke ÷ Fahrzeit, erst ab 1 min
+      const float km = s.tripKm.get(n), dur = s.tripDurationS.get(n);
+      return (!std::isnan(km) && !std::isnan(dur) && dur > 60) ? km / (dur / 3600.0f) : NAN;
+    }
+    case Key::Vmax: return s.tripVmax.get(n);
+    case Key::KwPeak: return s.tripKwPeak.get(n);
+    case Key::Power: return s.powerKw.get(n);
+    case Key::TankL: return s.tankL.get(n);
+    case Key::TripCost: return s.tripCost.get(n);
     default: return NAN;
   }
 }
@@ -116,6 +144,16 @@ void text(Key k, const CarSnapshot& s, char* out, size_t size) {
       snprintf(out, size, "N");
     else
       snprintf(out, size, "%d", s.gear);
+    return;
+  }
+  if (k == Key::TripTime) {  // h:mm
+    const float sec = value(k, s);
+    if (std::isnan(sec)) {
+      snprintf(out, size, "%s", fmt::NO_VALUE);
+    } else {
+      const unsigned m = static_cast<unsigned>(sec / 60);
+      snprintf(out, size, "%u:%02u", m / 60, m % 60);
+    }
     return;
   }
   fmt::number(out, size, value(k, s), decimals(k));
@@ -149,6 +187,13 @@ uint32_t color(Key k, const CarSnapshot& s) {
       const float r = s.rangeKm.get(s.now);
       return (!std::isnan(r) && r < cfg::RANGE_LOW_KM) ? theme::WARN : theme::TEXT;
     }
+    case Key::AvgTrip: return consumptionColor(s.avgTrip.get(s.now), s);
+    case Key::EcoScore: {
+      const float e = s.ecoScore.get(s.now);
+      if (std::isnan(e)) return theme::TEXT;
+      return e >= cfg::SCORE_GOOD ? theme::GOOD : (e < cfg::SCORE_OK ? theme::WARN : theme::TEXT);
+    }
+    case Key::CutSaved: return theme::GOOD;
     default: return theme::TEXT;
   }
 }
