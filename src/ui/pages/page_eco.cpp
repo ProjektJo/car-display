@@ -21,10 +21,10 @@
 namespace {
 
 // Kopf
-// 7.10.2026 nach der ersten Fahrt größer (Jos Wunsch): Momentanverbrauch 48 px ohne Überschrift,
-// Gang 40 px, untere Felder frei belegbar mit 24-px-Werten (FieldBar)
+// 7.10.2026 nach der ersten Fahrt (Jos Wunsch): Gang 40 px, untere Felder frei belegbar mit 24-px-Werten
+// (FieldBar); der Momentanverbrauch bleibt bei 38 px ("ist gut lesbar")
 constexpr int32_t PAD = 12;
-constexpr int32_t BIG_TOP = -4;
+constexpr int32_t BIG_TOP = 18;
 constexpr int32_t UNIT_GAP = 4;
 constexpr int32_t GEAR_TOP = 0;
 // Hinweis-Feld zwischen Verbrauch und Gang; solange es sichtbar ist, entfällt die Einheit
@@ -130,6 +130,10 @@ class EcoPage : public Page {
     for (float& v : curve_.v) v = NAN;
     curve_.ref = curve_.goal = curve_.tank = NAN;
 
+    font38_ = lv_font_montserrat_38;  // nur ASCII, "–" aus font_m28
+    font38_.fallback = &font_m28;
+    lv_obj_t* l = theme::label(parent, &font_m12, true, "Momentanverbrauch");
+    lv_obj_set_pos(l, PAD, 6);
     bigRow_ = lv_obj_create(parent);
     lv_obj_remove_style_all(bigRow_);
     lv_obj_set_pos(bigRow_, PAD, BIG_TOP);
@@ -138,9 +142,9 @@ class EcoPage : public Page {
     lv_obj_set_flex_align(bigRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     lv_obj_set_style_pad_column(bigRow_, UNIT_GAP, 0);
     lv_obj_remove_flag(bigRow_, LV_OBJ_FLAG_CLICKABLE);
-    big_ = theme::label(bigRow_, &font_m48, false, fmt::NO_VALUE);
-    unit_ = theme::label(bigRow_, &font_m14, true, "");
-    lv_obj_set_style_pad_bottom(unit_, 12, 0);
+    big_ = theme::label(bigRow_, &font38_, false, fmt::NO_VALUE);
+    unit_ = theme::label(bigRow_, &font_m12, true, "");
+    lv_obj_set_style_pad_bottom(unit_, 6, 0);
 
     // Gang rechts oben: "Gang" klein links neben der großen Ziffer
     gearRow_ = lv_obj_create(parent);
@@ -251,7 +255,7 @@ class EcoPage : public Page {
     // Momentanverbrauch: Schub, Stand (l/h) oder l/100 km
     char text[24];
     const char* unit = "l/100 km";
-    const lv_font_t* font = &font_m48;
+    const lv_font_t* font = &font38_;
     uint32_t color = theme::TEXT;
     if (!engineOn) {
       snprintf(text, sizeof(text), "%s", fmt::NO_VALUE);
@@ -592,6 +596,7 @@ class EcoPage : public Page {
   lv_obj_t* bigRow_ = nullptr;
   lv_obj_t* big_ = nullptr;
   lv_obj_t* unit_ = nullptr;
+  lv_font_t font38_;
   lv_obj_t* gearRow_ = nullptr;
   lv_obj_t* gear_ = nullptr;
   lv_obj_t* arrow_ = nullptr;

@@ -7,7 +7,8 @@
 // Wettbewerbszeile (in dieser Reihenfolge):
 //  1. 8 s nach einem Sprint-Ergebnis: Zeit und Abstand zur Bestzeit ("Bestzeit!" grün, sonst "+0,4 s" orange)
 //  2. beim kräftigen Beschleunigen: Prozent der besten Beschleunigung dieser Fahrt ("Rekord!" ab 100 %)
-//  3. sonst der Schnitt-Trend: Wie hat sich das Ø Tempo der Fahrt in den letzten 2 min verändert
+//  3. sonst "Zeit gewonnen": Wie viel Zeit die letzten 2 min gegenüber dem bisherigen Fahrtschnitt gebracht
+//     haben, dazu die Änderung des Ø Tempos
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -222,7 +223,8 @@ class SportPage : public Page {
     // Schnitt-Trend: alle 10 s das Ø Tempo der Fahrt merken
     if (!trendAt_ || s.now - trendAt_ >= TREND_SAMPLE_MS) {
       trendAt_ = s.now ? s.now : 1;
-      trend_[trendHead_] = values::value(values::Key::AvgSpeed, s);
+      trendKm_[trendHead_] = s.tripKm.get(s.now);
+      trendDur_[trendHead_] = s.tripDurationS.get(s.now);
       trendHead_ = (trendHead_ + 1) % TREND_SAMPLES;
       if (trendCount_ < TREND_SAMPLES) trendCount_++;
     }
@@ -338,15 +340,19 @@ class SportPage : public Page {
         col = pct >= 85 ? theme::GOOD : theme::ACCENT;
       }
     } else if (trendCount_ >= TREND_SAMPLES) {
-      const float now = trend_[(trendHead_ + TREND_SAMPLES - 1) % TREND_SAMPLES];
-      const float then = trend_[trendHead_];  // älteste Probe = vor 2 min
-      if (!std::isnan(now) && !std::isnan(then)) {
-        const float d = now - then;
+      // Zeit gewonnen: Strecke der letzten 2 min mit dem Fahrtschnitt von davor gefahren hätte so lange gedauert
+      const int iNow = (trendHead_ + TREND_SAMPLES - 1) % TREND_SAMPLES, iThen = trendHead_;
+      const float km1 = trendKm_[iNow], d1 = trendDur_[iNow], km0 = trendKm_[iThen], d0 = trendDur_[iThen];
+      if (!std::isnan(km1) && !std::isnan(d1) && !std::isnan(km0) && !std::isnan(d0) && d0 > 60 && km0 > 0.2f && d1 > d0) {
+        const float avgOld = km0 / (d0 / 3600.0f), avgNow = km1 / (d1 / 3600.0f);
+        const float gained = (km1 - km0) / avgOld * 3600.0f - (d1 - d0);
+        const float dv = avgNow - avgOld;
         char n[12], m[12];
-        fmt::number(n, sizeof(n), std::fabs(d), 1);
-        fmt::number(m, sizeof(m), now, 0);
-        snprintf(t, sizeof(t), SYM_AVG " %s km/h " SYM_DOT " %s%s in 2 min", m, d >= 0 ? "+" : "\xE2\x80\x93", n);
-        col = std::fabs(d) < TREND_MIN_KMH ? theme::MUTED : (d > 0 ? theme::GOOD : theme::WARN);
+        fmt::number(n, sizeof(n), std::fabs(gained), 0);
+        fmt::number(m, sizeof(m), std::fabs(dv), 1);
+        snprintf(t, sizeof(t), "%s s %s " SYM_DOT " " SYM_AVG " %s%s km/h", n, gained >= 0 ? "gewonnen" : "verloren",
+                 dv >= 0 ? "+" : "\xE2\x80\x93", m);
+        col = std::fabs(dv) < TREND_MIN_KMH ? theme::MUTED : (gained > 0 ? theme::GOOD : theme::WARN);
       }
     }
     setText(compete_, shownCompete_, sizeof(shownCompete_), t);
@@ -570,7 +576,8 @@ class SportPage : public Page {
   uint32_t drawnSeq_ = 0;
   uint32_t lastDraw_ = 0;
   // Wettbewerb
-  float trend_[TREND_SAMPLES] = {};
+  float trendKm_[TREND_SAMPLES] = {};
+  float trendDur_[TREND_SAMPLES] = {};
   int trendHead_ = 0, trendCount_ = 0;
   uint32_t trendAt_ = 0;
   float accBest_ = NAN;   // beste Beschleunigung abgeschlossener Phasen

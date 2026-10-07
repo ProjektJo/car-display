@@ -44,6 +44,24 @@ void test_sprint_valid() {
   TEST_ASSERT_FLOAT_IS_NAN(d.m.resultPrevBest());
 }
 
+// Kräftig losgefahren, dann zu schwach (1 km/h je s = 0,28 m/s²): Abbruch nach 3 s
+void test_sprint_weak_abort() {
+  Drive d;
+  d.stand(1.5f);
+  while (d.v < 40) d.step(10.0f, 98);
+  TEST_ASSERT_EQUAL_INT((int)State::Running, (int)d.m.state());
+  for (int i = 0; i < 8 * 4; i++) d.step(1.0f, 98);
+  TEST_ASSERT_EQUAL_INT((int)State::Ready, (int)d.m.state());
+}
+
+// Ohne Pedal: 2 m/s² (7,5 km/h je s) zählt als Sprint
+void test_sprint_2ms2() {
+  Drive d;
+  d.stand(1.5f, NAN);
+  while (d.v < 30) d.step(7.5f, NAN);
+  TEST_ASSERT_EQUAL_INT((int)State::Running, (int)d.m.state());
+}
+
 // Ohne Pedalwert: kräftige Beschleunigung (12 km/h je s) zählt als Sprint
 void test_sprint_by_accel() {
   Drive d;
@@ -176,6 +194,8 @@ int main() {
   RUN_TEST(test_sprint_valid);
   RUN_TEST(test_sprint_normal_start_discarded);
   RUN_TEST(test_sprint_by_accel);
+  RUN_TEST(test_sprint_weak_abort);
+  RUN_TEST(test_sprint_2ms2);
   RUN_TEST(test_sprint_live_curve);
   RUN_TEST(test_sprint_shift_pause);
   RUN_TEST(test_sprint_speed_drop);

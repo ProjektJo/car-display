@@ -78,6 +78,8 @@ class SprintMeter {
  private:
   void abort();
   void result(Kind k, float s, float& best);
+  // Tempo vor etwa 3 s (aus dem Verlauf), NAN = noch zu kurz
+  float speedAgo(uint32_t t, uint32_t sinceMs) const;
 
   State state_ = State::Ready;
   Best best_ = {};
@@ -93,6 +95,11 @@ class SprintMeter {
   float prevV_ = NAN;
   float vTop_ = 0;
   bool standing_ = true;
+  // Tempo-Verlauf der letzten Sekunden (Abbruch bei zu schwacher Beschleunigung)
+  static constexpr int HIST = 48;
+  uint32_t histT_[HIST] = {};
+  float histV_[HIST] = {};
+  int histHead_ = 0, histCount_ = 0;
   float t50_ = NAN;            // laufende Messung
   uint32_t doneAt_ = 0;
   Trace trace_ = {};           // letzte gültige Messung

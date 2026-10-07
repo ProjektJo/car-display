@@ -52,6 +52,15 @@ void SprintMeter::result(Kind k, float s, float& best) {
   }
 }
 
+float SprintMeter::speedAgo(uint32_t t, uint32_t sinceMs) const {
+  // jüngste Probe, die mindestens sinceMs alt ist
+  for (int k = 1; k <= histCount_; k++) {
+    const int i = (histHead_ - k + HIST) % HIST;
+    if (t - histT_[i] >= sinceMs) return histV_[i];
+  }
+  return NAN;
+}
+
 void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
   if (std::isnan(v)) return;
   const bool standing = v < cfg::SPRINT_STAND_KMH;
@@ -64,6 +73,14 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
     return prevT_ + static_cast<uint32_t>((f < 0 ? 0 : (f > 1 ? 1 : f)) * (t - prevT_));
   };
   const bool pedalHigh = !std::isnan(pedal) && pedal >= cfg::SPRINT_PEDAL_PCT;
+  histT_[histHead_] = t;
+  histV_[histHead_] = v;
+  histHead_ = (histHead_ + 1) % HIST;
+  if (histCount_ < HIST) histCount_++;
+  // Beschleunigung der letzten 3 s zu schwach (Jo: am Anfang mitzählen, im Verlauf abbrechen)
+  const float vAgo = speedAgo(t, cfg::SPRINT_ACCEL_WINDOW_MS);
+  const bool weak = !std::isnan(vAgo) &&
+                    (v - vAgo) / 3.6f / (cfg::SPRINT_ACCEL_WINDOW_MS / 1000.0f) < cfg::SPRINT_MIN_ACCEL_MS2;
 
   // --- Sprint aus dem Stand erkennen: ≥ 1 s gestanden, dann spätestens 3 s nach dem Anfahren
   //     Gaspedal ≥ 80 % des Bereichs oder im Schnitt ≥ 9 km/h je s seit dem Anfahren (A10, geändert)
@@ -100,7 +117,8 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
     if (std::isnan(t50_) && v >= 50) t50_ = (cross(50) - startMs_) / 1000.0f;
     // Sprint nur innerhalb der ersten 3 s nach dem Anfahren; danach bleibt es eine Live-Kurve
     if (state_ == State::Waiting && launch && t - startMs_ <= cfg::SPRINT_ARM_AFTER_LEAVE_MS + 200) state_ = State::Running;
-    const bool over = v < vTop_ - cfg::SPRINT_ABORT_DROP_KMH || t - startMs_ > cfg::SPRINT_MAX_MS;
+    const bool over = v < vTop_ - cfg::SPRINT_ABORT_DROP_KMH || t - startMs_ > cfg::SPRINT_MAX_MS ||
+                      (weak && t - startMs_ >= cfg::SPRINT_ACCEL_WINDOW_MS);
     if (state_ == State::Running) {
       if (!std::isnan(t50_) && std::isnan(last50Run_)) {
         last50Run_ = t50_;
@@ -138,7 +156,8 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
       last80120_ = (cross(120) - start80_) / 1000.0f;
       run80_ = false;
       result(Kind::S80120, last80120_, best_.s80120);
-    } else if (v < vTop80_ - cfg::SPRINT_ABORT_DROP_KMH || t - start80_ > cfg::SPRINT_MAX_MS) {
+    } else if (v < vTop80_ - cfg::SPRINT_ABORT_DROP_KMH || t - start80_ > cfg::SPRINT_MAX_MS ||
+               (weak && t - start80_ >= cfg::SPRINT_ACCEL_WINDOW_MS)) {
       run80_ = false;
     }
   }

@@ -42,3 +42,10 @@ Neu:
   besten Beschleunigung dieser Sitzung (grüne Marke am Balken); sonst der Schnitt-Trend der letzten 2 min.
 - Unten vier frei belegbare Felder (Ø Tempo, Strecke, Fahrzeit, Leistung).
 - Live-Diagramm: Tippen auf den Bogen öffnet es groß, Paar umschaltbar.
+
+## Nachtrag (Jos Antworten, 7.10.2026)
+- Sprint: Ab 2 m/s² (7,2 km/h je s) zählt das Anfahren immer. Abbruch, wenn die Beschleunigung im Verlauf
+  über 3 s unter 0,8 m/s² fällt (`SPRINT_MIN_ACCEL_MS2`, `SPRINT_ACCEL_WINDOW_MS`).
+- Sport: statt des km/h-Trends „Zeit gewonnen“: Die Strecke der letzten 2 min, mit dem Fahrtschnitt von
+  davor gefahren, hätte so viel länger gedauert („12 s gewonnen · Ø +3,0 km/h“).
+- Eco: Momentanverbrauch wieder 38 px mit Überschrift (gut lesbar), Felder 24 px.
