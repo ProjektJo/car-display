@@ -11,6 +11,9 @@ namespace tankdlg {
 // Von Hand ("Getankt" auf Fahrt & Tank bzw. im Menü): Liter aus dem berechneten Verbrauch
 void openManual(const CarSnapshot& s);
 
+// "Getankt?" mit Zeitlimit (ohne 0x2F nach dem Start; seriell "r" zur Fehlersuche)
+void openAsk(const CarSnapshot& s);
+
 // Je Snapshot: öffnet das Fenster, wenn ein Tankvorgang erkannt wurde
 void update(const CarSnapshot& s);
 

@@ -376,6 +376,7 @@ void task(void*) {
         case 'x': overlay::close(); break;
         case 'm': openMenu(); break;
         case 'v': vehicledlg::openEditor(snap); break;  // Fahrzeug bearbeiten (Fehlersuche)
+        case 'r': tankdlg::openAsk(snap); break;  // "Getankt?" (Fehlersuche)
         case 't': startscreen::hide(); openTouchTest(); break;
         case 'f': {  // Lage umschalten (Fehlersuche Touch)
           UiSettings& u = uiprefs::get();
