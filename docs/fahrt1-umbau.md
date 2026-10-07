@@ -71,3 +71,26 @@ Neu:
 - Menü → „Fahrzeug“ öffnet dieselben Felder für das geladene Profil (Befehl `SetVehicle` an calcTask,
   storageTask übernimmt Kraftstoff, Hubraum, Tank und Leistung ins Profil).
 - GPS-Modul ist wahlweise: ohne GPS keine Uhr, kein Auto-Tag/Nacht, Tempo vom Auto, km-Faktor bleibt 1.
+
+## Nachtrag 4: Tank, Reserve, Helligkeit (7.10.2026)
+**Füllstand (vorhandene Logik bleibt, ergänzt):** 0x2F → Liter = Füllstand · Tankgröße (geglättet). Fehlt 0x2F oder
+liefert er nichts, rechnet das Tankmodell (`tankModelL`, dauerhaft in PersistState) mit dem Verbrauch der besten
+Quelle weiter (0x5E, MAF, absolute Last, zuletzt Saugrohrdruck + Drehzahl). Anzeige immer in Litern.
+Diesel: Luftmasse nur zusammen mit λ (0x44), stöchiometrisch 14,5 (Benzin 14,7); ohne λ wäre der Wert beim mager
+laufenden Diesel um das 1,3- bis 3-Fache zu hoch.
+
+**Tankerkennung:**
+- Mit 0x2F: Anstieg beim Start wie bisher → Tank-Fenster mit erkannten Litern, jetzt mit 15-s-Zeitlimit
+  (Balken). Ohne Berührung: nicht getankt.
+- Ohne 0x2F: beim Start „Getankt?“ mit drei Knöpfen (✓ Voll, ✎ Liter, ✕ Nein) und 15-s-Zeitlimit, wenn der Motor
+  noch warm ist (≥ 50 °C, also kurzer Halt wie beim Tanken) und der Tank höchstens halb voll ist; ist der
+  Inhalt unbekannt, bei jedem Start. Ohne Antwort: nicht getankt, das Modell rechnet mit dem gespeicherten Inhalt.
+  „Voll“ bucht Tankgröße minus physischen Rest.
+
+**Reserve:** pauschal 4 % des Tanks (1–3 l), im Fahrzeug-Setup in 0,5-l-Schritten änderbar. Angezeigt und für die
+Reichweite genutzt wird nur der nutzbare Teil (physisch − Reserve, nicht unter 0). Intern bleibt der physische
+Inhalt (`tankPhysL`): Vollgetankt, Mischpreis und Tankmodell rechnen damit.
+
+**Helligkeit Auto (GPS):** Übergang über 3 h um Sonnenauf- und -untergang, in 5-%-Stufen.
+
+**Auto-Sprint:** wechselt nur noch von der Sport-Seite zur Sprint-Seite (gemessen wird weiterhin immer).

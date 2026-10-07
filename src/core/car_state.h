@@ -93,6 +93,7 @@ struct ProfileInfo {
   uint8_t coldCoolantC = cfg::DEFAULT_COLD_COOLANT_C;
   uint16_t powerKw = 55;            // Skala des Leistungsbalkens (A10)
   float displacementL = NAN;        // Hubraum (Menü "Fahrzeug")
+  float reserveL = NAN;             // nicht nutzbare Reserve im Tank
   uint16_t redlineRpm = cfg::DEFAULT_REDLINE_RPM;
 };
 
@@ -178,6 +179,8 @@ struct CarState {
   Val fillL{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // verbraucht seit dem Tanken
   Val sinceFullL{NAN, 0, cfg::PID_PERIOD_FAST_MS};     // berechnet seit der letzten Vollbetankung
   uint16_t refuelSeq = 0;                               // automatische Tankerkennung: zählt hoch
+  uint16_t refuelAskSeq = 0;                            // ohne 0x2F: "Getankt?" fragen (zählt hoch)
+  Val tankPhysL{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // physischer Tankinhalt mit Reserve
   float refuelL = NAN;                                  // erkannte Liter
 
   // --- Eco (calcTask, A6/A9) ---

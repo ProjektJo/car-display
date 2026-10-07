@@ -99,12 +99,14 @@ void test_refuel_and_calibration() {
   calc.refuel(30.0f, 1.799f, true, trip::FillSource::Entered, cal);
   TEST_ASSERT_FALSE(cal);  // erste Vollbetankung startet nur den Zeitraum
   cruise(calc, s, now, 0.1f);
-  TEST_ASSERT_FLOAT_WITHIN(0.05f, 49.0f, calc.out().tankL);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 49.0f, calc.out().tankPhysL);
+  // angezeigt wird nur der nutzbare Teil: Reserve pauschal 4 % von 49 l = 1,96 l
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 49.0f - 1.96f, calc.out().tankL);
   TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.799f, calc.out().mixPrice);
 
   cruise(calc, s, now, 400.0f);
   const float computed = (float)calc.state().calComputedL;
-  const float rest = calc.out().tankL;
+  const float rest = calc.out().tankPhysL;  // physisch (Mischpreis rechnet mit dem echten Inhalt)
   TEST_ASSERT_FLOAT_WITHIN(0.1f, 49.0f - computed, rest);
   // getankt = berechnet · 40/36,4 -> fuel_cal · 1,0483
   calc.refuel(computed * 40.0f / 36.4f, 1.699f, true, trip::FillSource::Entered, cal);
@@ -315,6 +317,46 @@ void test_km_factor_from_odo() {
   TEST_ASSERT_FLOAT_WITHIN(0.2f, 50105.0f, calc.out().odoKm);
 }
 
+// Ohne 0x2F: nach einem kurzen Halt (Motor warm) und höchstens halbvollem Tank "Getankt?" fragen;
+// bei kaltem Motor oder vollem Tank nicht
+static void restart(VehicleCalc& calc, CarState& s, uint32_t& now, float coolant) {
+  for (int i = 0; i < 50; i++) {  // 5 s Motor aus
+    now += 100;
+    s.speed.set(0, now);
+    s.rpm.set(0, now);
+    s.coolant.set(coolant, now);
+    calc.step(s, now, 0.1f);
+  }
+  for (int i = 0; i < 30; i++) {  // 3 s Leerlauf
+    now += 100;
+    s.speed.set(0, now);
+    s.rpm.set(800, now);
+    s.coolant.set(coolant, now);
+    calc.step(s, now, 0.1f);
+  }
+}
+
+void test_refuel_ask_without_2f() {
+  CarState s;
+  support(s.link, {0x03, 0x05, 0x0B, 0x0C, 0x0D, 0x0F});
+  VehicleCalc calc;
+  Profile p = simProfile();
+  p.tankL = 20;  // kleiner Tank: schnell halb leer (kurze Testlaufzeit)
+  calc.load(p, nullptr);
+  uint32_t now = 1;
+  cruise(calc, s, now, 0.5f);
+  TEST_ASSERT_EQUAL_UINT16(1, calc.out().refuelAskSeq);  // Tankinhalt unbekannt: beim Start fragen
+  bool cal = false;
+  calc.refuel(18.0f, 1.799f, true, trip::FillSource::Entered, cal);  // voll
+  restart(calc, s, now, 85);
+  TEST_ASSERT_EQUAL_UINT16(1, calc.out().refuelAskSeq);  // voll: keine Frage
+  cruise(calc, s, now, 250.0f);  // gut die Hälfte verbraucht (ca. 5 l/100 km)
+  restart(calc, s, now, 30);
+  TEST_ASSERT_EQUAL_UINT16(1, calc.out().refuelAskSeq);  // kalt: langer Halt, keine Frage
+  restart(calc, s, now, 85);
+  TEST_ASSERT_EQUAL_UINT16(2, calc.out().refuelAskSeq);  // warm und halb leer: fragen
+}
+
 // Thermostat (A9): 16 min Fahrt, davon > 8 min über 50 km/h, Kühlmittel 65 °C -> einmal Hinweis;
 // wird der Motor warm, verschwindet der Eintrag; beim nächsten Start (innerhalb von 10) kein neuer Hinweis
 static void drive(VehicleCalc& calc, CarState& s, uint32_t& now, float minutes, float speed, float coolant) {
@@ -364,6 +406,7 @@ int main() {
   RUN_TEST(test_maintenance);
   RUN_TEST(test_thermostat);
   RUN_TEST(test_km_factor_from_odo);
+  RUN_TEST(test_refuel_ask_without_2f);
   return UNITY_END();
 }
 

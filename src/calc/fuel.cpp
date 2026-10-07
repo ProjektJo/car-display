@@ -4,9 +4,10 @@
 
 namespace fuel {
 
-Source chooseSource(FuelType fuel, bool hasFuelRate, bool hasMaf, bool hasMap, bool hasRpm, bool hasAbsLoad) {
+Source chooseSource(FuelType fuel, bool hasFuelRate, bool hasMaf, bool hasMap, bool hasRpm, bool hasAbsLoad,
+                    bool hasLambda) {
   if (hasFuelRate) return Source::FuelRate;
-  if (fuel == FuelType::Diesel) return Source::None;
+  if (fuel == FuelType::Diesel) return (hasMaf && hasLambda) ? Source::Maf : Source::None;
   if (hasMaf) return Source::Maf;
   if (hasAbsLoad && hasRpm) return Source::AbsLoad;
   if (hasMap && hasRpm) return Source::SpeedDensity;
@@ -31,8 +32,11 @@ float absLoadAirGs(float absLoadPct, float displacementL, float rpm) {
 namespace {
 
 // Kraftstoff g/s aus Luft g/s mit λ und Gemischkorrektur (A7)
-float fuelFromAir(float airGs, const Input& in) {
-  const float afr = std::isnan(in.lambda) ? cfg::AFR_STOICH : cfg::AFR_STOICH * in.lambda;
+float fuelFromAir(float airGs, const Input& in, FuelType fuel) {
+  // Diesel nur mit gemeldetem λ (sonst wäre der Wert um das 1,3- bis 3-Fache zu hoch)
+  if (fuel == FuelType::Diesel && std::isnan(in.lambda)) return NAN;
+  const float stoich = fuel == FuelType::Diesel ? cfg::AFR_STOICH_DIESEL : cfg::AFR_STOICH;
+  const float afr = std::isnan(in.lambda) ? stoich : stoich * in.lambda;
   if (!(afr > 0)) return NAN;
   const float trims = (std::isnan(in.stftPct) ? 0.0f : in.stftPct) + (std::isnan(in.ltftPct) ? 0.0f : in.ltftPct);
   return airGs / afr * (1.0f + trims / 100.0f);
@@ -47,17 +51,17 @@ float rateLph(Source src, const Engine& e, const Input& in) {
       lph = in.fuelRateLph;
       break;
     case Source::Maf:
-      if (!std::isnan(in.mafGs)) lph = fuelFromAir(in.mafGs, in) * 3600.0f / densityGPerL(e.fuel);
+      if (!std::isnan(in.mafGs)) lph = fuelFromAir(in.mafGs, in, e.fuel) * 3600.0f / densityGPerL(e.fuel);
       break;
     case Source::AbsLoad:
       if (std::isnan(in.absLoadPct) || std::isnan(in.rpm) || !(e.displacementL > 0)) break;
-      lph = fuelFromAir(absLoadAirGs(in.absLoadPct, e.displacementL, in.rpm), in) * 3600.0f / densityGPerL(e.fuel);
+      lph = fuelFromAir(absLoadAirGs(in.absLoadPct, e.displacementL, in.rpm), in, e.fuel) * 3600.0f / densityGPerL(e.fuel);
       break;
     case Source::SpeedDensity: {
       if (std::isnan(in.mapKpa) || std::isnan(in.rpm)) break;
       const float iat = std::isnan(in.iatC) ? cfg::IAT_FALLBACK_C : in.iatC;
       const float air = speedDensityAirGs(in.mapKpa, e.displacementL, in.rpm, e.ve, iat);
-      lph = fuelFromAir(air, in) * 3600.0f / densityGPerL(e.fuel);
+      lph = fuelFromAir(air, in, e.fuel) * 3600.0f / densityGPerL(e.fuel);
       break;
     }
     case Source::None:

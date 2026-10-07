@@ -24,7 +24,8 @@ class VehicleCalc {
     bool fuelCut = false;
     float avg1 = NAN, avg10 = NAN, avg100 = NAN;
     float avgTank = NAN, avgTrip = NAN, avgProfile = NAN, avgFills = NAN;
-    float tankL = NAN;
+    float tankL = NAN;         // nutzbar (Anzeige): physisch minus Reserve, nicht unter 0
+    float tankPhysL = NAN;     // physisch im Tank (Tanken, Mischpreis)
     float prognosis = NAN;     // geglättet (τ 60 s)
     float rangeKm = NAN;
     float tripKm = NAN, tripL = NAN, tripCost = NAN, tripDurationS = NAN;
@@ -47,6 +48,8 @@ class VehicleCalc {
     // Automatische Tankerkennung (A7): zählt hoch, wenn ein Tankvorgang erkannt wurde
     uint16_t refuelSeq = 0;
     float refuelL = NAN;
+    // Ohne 0x2F: "Getankt?" fragen (warmer Motor, Tank höchstens halb voll bzw. unbekannt)
+    uint16_t refuelAskSeq = 0;
     // Sport und Sprint (A10)
     float powerKw = NAN;           // geschätzte Leistung am Rad
     float tripVmax = NAN, tripKwPeak = NAN;
@@ -97,7 +100,7 @@ class VehicleCalc {
   void setInterval(int which, float km);
   void resetAverages(uint8_t mask);            // Bit 0: 1 km, 1: 10 km, 2: 100 km, 3: Tank
   void setKmFactor(float f);                   // aus dem GPS-Vergleich (A7)
-  void setVehicle(FuelType fuel, float displacementL, float tankL, uint16_t powerKw);  // Menü "Fahrzeug"
+  void setVehicle(FuelType fuel, float displacementL, float tankL, uint16_t powerKw, float reserveL);  // Menü "Fahrzeug"
 
  private:
   void decideTrip(const CarState& s, uint32_t nowMs);
@@ -143,6 +146,8 @@ class VehicleCalc {
   bool engineWasOn_ = false;
   uint32_t detectSince_ = 0;     // Motorstart: Füllstand wird gemittelt
   bool detectDone_ = true;       // erst nach dem ersten Motorstart prüfen
+  bool askPending_ = false;      // ohne 0x2F: nach dem Start einmal "Getankt?" prüfen
+  uint32_t askSince_ = 0;
   double detectSum_ = 0;
   uint32_t detectN_ = 0;
   uint32_t lastGearSearchMs_ = 0;

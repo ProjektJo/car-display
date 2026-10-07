@@ -154,6 +154,7 @@ bool activate(uint8_t id) {
     s.profile.coldCoolantC = p.coldCoolantC;
     s.profile.powerKw = p.powerKw;
     s.profile.displacementL = p.displacementL;
+    s.profile.reserveL = p.reserve();
     s.profile.redlineRpm = p.redlineRpm;
     snprintf(s.link.vehicle, sizeof(s.link.vehicle), "%s", p.name);
   });
@@ -340,6 +341,7 @@ void handle(const Msg& m) {
       p.tankL = m.profile.tankL;
       p.powerKw = m.profile.powerKw;
       p.shiftRpm = m.profile.shiftRpm;
+      p.reserveL = m.profile.reserveL;
       memcpy(p.gears, m.profile.gears, sizeof(p.gears));
       if (store::saveProfile(p)) refreshList();
       carstate::modify([&](CarState& s) {

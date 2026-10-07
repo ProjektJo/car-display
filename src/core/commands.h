@@ -13,7 +13,8 @@ enum class CmdType : uint8_t {
   ClearDtc,     // an obdTask: Fehlercodes löschen (Mode 04), nur bei stehendem Motor
   SetGoal,      // an calcTask: Spar-Ziel, i = 0 aus / 1 auto / 2 fest, f = fester Wert
   SetBody,      // an calcTask: Fahrzeugart, i = Index in cfg::BODY_TYPES
-  SetVehicle,   // an calcTask: Fahrzeugdaten, i = Kraftstoff (0 Benzin, 1 Diesel) | Leistung kW << 8, f = Hubraum l, f2 = Tank l
+  SetVehicle,   // an calcTask: Fahrzeugdaten, i = Kraftstoff (0 Benzin, 1 Diesel) | Leistung kW << 8 | Reserve in 0,1 l << 20,
+                //   f = Hubraum l, f2 = Tank l
   SetColdRpm,   // an calcTask: Kalt-Grenze, i = U/min
   SetOdo,       // an calcTask: Tachostand eintragen, f = km
   MaintDone,    // an calcTask: Wartung erledigt, i = 0 Öl / 1 Inspektion

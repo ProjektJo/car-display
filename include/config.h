@@ -142,6 +142,7 @@ constexpr uint8_t BODY_TYPE_COUNT = sizeof(BODY_TYPES) / sizeof(BODY_TYPES[0]);
 // Verbrauch (A7 Verbrauchsberechnung)
 // ---------------------------------------------------------------------------
 constexpr float AFR_STOICH = 14.7f;               // Benzin; mit 0x44: AFR = 14,7 · λ_soll
+constexpr float AFR_STOICH_DIESEL = 14.5f;        // Diesel: nur zusammen mit λ (0x44), er läuft immer mager
 constexpr float DENSITY_PETROL_G_PER_L = 745.0f;
 constexpr float DENSITY_DIESEL_G_PER_L = 832.0f;
 constexpr float HEAT_PETROL_MJ_PER_L = 32.0f;     // Heizwert (für Bremsenergie, Etappe 4)
@@ -206,6 +207,15 @@ constexpr float PRICE_DEFAULT = 1.799f;
 constexpr uint32_t REFUEL_AVG_MS = 10000;
 constexpr float REFUEL_MIN_RISE_PCT = 8.0f;
 constexpr float REFUEL_FULL_PCT = 95.0f;          // darüber die berechneten Liter seit der letzten Vollbetankung
+// Ohne 0x2F (7.10.2026): beim Start fragen "Getankt?", wenn der Motor noch warm ist (kurzer Halt, wie beim
+// Tanken) und der Tank höchstens zur Hälfte voll ist; ist der Tankinhalt unbekannt, bei jedem Start.
+constexpr float REFUEL_ASK_WARM_C = 50.0f;
+constexpr float REFUEL_ASK_BELOW_FRAC = 0.5f;
+constexpr uint32_t REFUEL_ASK_WAIT_MS = 15000;   // so lange auf die erste Kühlmittel-Messung warten
+constexpr uint32_t REFUEL_ASK_TIMEOUT_MS = 15000; // Fenster schließt ohne Antwort: nicht getankt
+// Reserve (nicht nutzbar, schützt die Pumpe): pauschal 4 % des Tanks, 1–3 l; im Fahrzeug-Setup änderbar
+constexpr float RESERVE_FRAC = 0.04f, RESERVE_MIN_L = 1.0f, RESERVE_MAX_L = 3.0f;
+constexpr float RESERVE_STEP_L = 0.5f, RESERVE_LIMIT_L = 10.0f;
 constexpr float TRIP_AVG_MIN_KM = 0.5f;           // Fahrt & Tank: Ø Fahrt erst ab 0,5 km (U Seite 6)
 constexpr float TANK_GOAL_MIN_KM = 5.0f;          // "Ø / Ziel" erst ab 5 km seit dem Tanken (Vorschau)
 
@@ -403,7 +413,10 @@ constexpr uint8_t KMF_MIN_SATS = 5;
 constexpr float KMF_MIN = 0.9f, KMF_MAX = 1.1f;
 constexpr float KMF_ODO_MIN_KM = 100.0f;          // Strecken-Faktor aus Tachostand-Einträgen erst ab 100 km Abstand
 constexpr uint32_t TRIP_GPS_PAUSE_S = 300;        // mit GPS-Uhrzeit: Pause > 5 min = neue Fahrt (A8)
-constexpr float SUN_TRANSITION_MIN = 15.0f;       // Tag/Nacht mit 15 min Übergang (A9 Sonnenstand)
+// Tag/Nacht gleitend über 3 h um Sonnenauf- und -untergang (7.10.2026, vorher 15 min); die Helligkeit
+// springt dabei in 5-%-Stufen (BRIGHT_AUTO_STEP)
+constexpr float SUN_TRANSITION_MIN = 180.0f;
+constexpr int BRIGHT_AUTO_STEP = 5;
 // Thermostat-Check (A9, Z 10): Fahrzeit > 15 min, davon > 8 min über 50 km/h, Kühlmittel < 75 °C,
 // Ansaugluft beim Start > −5 °C; höchstens alle 10 Starts
 constexpr float THERMO_DRIVE_S = 15 * 60.0f;

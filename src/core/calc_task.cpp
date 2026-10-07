@@ -84,7 +84,8 @@ void handleCommands() {
         vc.setBody(static_cast<uint8_t>(c.i));
         break;
       case CmdType::SetVehicle:
-        vc.setVehicle((c.i & 0xFF) ? FuelType::Diesel : FuelType::Petrol, c.f, c.f2, static_cast<uint16_t>(c.i >> 8));
+        vc.setVehicle((c.i & 0xFF) ? FuelType::Diesel : FuelType::Petrol, c.f, c.f2, static_cast<uint16_t>((c.i >> 8) & 0xFFF),
+                      ((c.i >> 20) & 0xFF) / 10.0f);
         break;
       case CmdType::SetColdRpm:
         vc.setColdRpm(static_cast<uint16_t>(c.i));
@@ -159,6 +160,8 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
       s.refuelSeq = o.refuelSeq;
       s.refuelL = o.refuelL;
     }
+    if (active) s.refuelAskSeq = o.refuelAskSeq;
+    put(s.tankPhysL, o.tankPhysL);
     s.gear = active ? o.gear : eco::GEAR_NONE;
     s.shiftAdvice = active && o.shiftAdvice;
     put(s.accel, o.accelMs2);
@@ -196,6 +199,7 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
       s.profile.displacementL = vc.profile().displacementL;
       s.profile.tankL = vc.profile().tankL;
       s.profile.powerKw = vc.profile().powerKw;
+      s.profile.reserveL = vc.profile().reserve();
     }
     put(s.powerKw, o.powerKw);
     put(s.tripVmax, o.tripVmax);

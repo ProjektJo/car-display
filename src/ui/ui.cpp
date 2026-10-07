@@ -259,7 +259,15 @@ void applyBrightness() {
   // Auto (GPS): Sonnenstand am aktuellen Ort; ohne GPS-Fix gilt Tag
   float f = u.dayNight == 1 ? 1.0f : 0.0f;
   if (u.dayNight == 2 && !std::isnan(snap.nightFactor)) f = snap.nightFactor;
-  display::setBrightness(static_cast<uint8_t>(std::lround(u.brightDay + (u.brightNight - u.brightDay) * f)));
+  long pct = std::lround(u.brightDay + (u.brightNight - u.brightDay) * f);
+  // Auto (GPS): über 3 h um Sonnenauf- und -untergang gleitend, in 5-%-Stufen (Jos Wunsch)
+  if (u.dayNight == 2 && f > 0 && f < 1) {
+    pct = std::lround(static_cast<float>(pct) / cfg::BRIGHT_AUTO_STEP) * cfg::BRIGHT_AUTO_STEP;
+    const long lo = u.brightDay < u.brightNight ? u.brightDay : u.brightNight;
+    const long hi = u.brightDay < u.brightNight ? u.brightNight : u.brightDay;
+    pct = pct < lo ? lo : (pct > hi ? hi : pct);
+  }
+  display::setBrightness(static_cast<uint8_t>(pct));
   theme::setNight(f >= 0.5f);
 }
 
@@ -323,7 +331,10 @@ void task(void*) {
       vehicledlg::update(snap);  // "Welches Fahrzeug?", wenn kein Profil eindeutig passt
       if (!PAGES[current]->available(snap)) stepPage(+1);  // z. B. Sensor fehlt plötzlich
       // Auto-Sprint (A10), abschaltbar im Menü
-      switch (autoSprint.update(snap.now, uiprefs::get().autoSprint != 0, snap.sprint.launchSeq, snap.sprint.state, snap.sprint.doneAtMs,
+      // Auto-Sprint nur aus dem Sport-Modus (Sport-Seite sichtbar, Jos Wunsch); der Rücksprung gilt weiter
+      const bool sportActive = PAGES[current] == sportPage();
+      switch (autoSprint.update(snap.now, uiprefs::get().autoSprint != 0 && (sportActive || autoSprint.switched()),
+                                snap.sprint.launchSeq, snap.sprint.state, snap.sprint.doneAtMs,
                                 values::value(values::Key::Pedal, snap), overlay::isOpen())) {
         case perf::AutoSprint::Action::ShowSprint:
           beforeSprint = current;

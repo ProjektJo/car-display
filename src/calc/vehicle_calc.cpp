@@ -134,8 +134,25 @@ void VehicleCalc::stepRefuelDetect(const CarState& s, uint32_t nowMs, bool engin
     detectDone_ = !has2F || std::isnan(st_.levelAtStopPct);
     detectSum_ = 0;
     detectN_ = 0;
+    askPending_ = true;
+    askSince_ = detectSince_;
   }
   engineWasOn_ = engineOn;
+  // Ohne Füllstand vom Auto (0x2F fehlt oder liefert nichts): nach dem Start einmal fragen, ob getankt wurde
+  if (askPending_ && engineOn) {
+    const bool noLevel = !has2F || std::isnan(level);
+    const float coolant = s.coolant.get(nowMs);
+    if (!noLevel) {
+      askPending_ = false;
+    } else if (!std::isnan(coolant) || nowMs - askSince_ >= cfg::REFUEL_ASK_WAIT_MS) {
+      askPending_ = false;
+      const float usable = profile_.tankL - profile_.reserve();
+      const bool unknown = !st_.tankModelValid;
+      const bool warm = !std::isnan(coolant) && coolant >= cfg::REFUEL_ASK_WARM_C;
+      const bool lowish = st_.tankModelValid && st_.tankModelL - profile_.reserve() <= usable * cfg::REFUEL_ASK_BELOW_FRAC;
+      if (unknown || (warm && lowish)) out_.refuelAskSeq++;
+    }
+  }
   if (!engineOn || !has2F) return;
   if (!detectDone_) {
     // nur im Stand mitteln (die Anzeige schwappt beim Fahren); losgefahren = mit dem bisherigen Mittel entscheiden
@@ -261,8 +278,9 @@ void VehicleCalc::stepThermo(const CarState& s, uint32_t nowMs, float dtS, bool 
   }
 }
 
-void VehicleCalc::setVehicle(FuelType fuel, float displacementL, float tankL, uint16_t powerKw) {
+void VehicleCalc::setVehicle(FuelType fuel, float displacementL, float tankL, uint16_t powerKw, float reserveL) {
   if (!active_) return;
+  if (reserveL >= 0 && reserveL <= cfg::RESERVE_LIMIT_L) profile_.reserveL = reserveL;
   if (displacementL >= cfg::DISPLACEMENT_MIN_L && displacementL <= cfg::DISPLACEMENT_MAX_L) profile_.displacementL = displacementL;
   if (tankL >= cfg::TANK_MIN_L && tankL <= cfg::TANK_MAX_L) profile_.tankL = tankL;
   if (powerKw >= cfg::POWER_MIN_KW && powerKw <= cfg::POWER_MAX_KW) profile_.powerKw = powerKw;
@@ -500,7 +518,8 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
   in.pedalClosedPct = pedalClosed_;
 
   const fuel::Source src = fuel::chooseSource(profile_.fuel, li.pidSupported(0x5E), li.pidSupported(0x10),
-                                              li.pidSupported(0x0B), li.pidSupported(0x0C), li.pidSupported(0x43));
+                                              li.pidSupported(0x0B), li.pidSupported(0x0C), li.pidSupported(0x43),
+                                              li.pidSupported(0x44));
   out_.source = src;
   fuel::Engine eng;
   eng.fuel = profile_.fuel;
@@ -653,12 +672,14 @@ void VehicleCalc::updateOutputs(const CarState& s, uint32_t nowMs, float dtS) {
   if (s.link.pidSupported(0x2F) && !std::isnan(level)) {
     const float a = dtS / cfg::TANK_LEVEL_TAU_S;
     levelSmooth_ = std::isnan(levelSmooth_) ? level : levelSmooth_ + (a > 1 ? 1 : a) * (level - levelSmooth_);
-    out_.tankL = levelSmooth_ / 100.0f * profile_.tankL;
+    out_.tankPhysL = levelSmooth_ / 100.0f * profile_.tankL;
   } else if (st_.tankModelValid) {
-    out_.tankL = static_cast<float>(st_.tankModelL);
+    out_.tankPhysL = static_cast<float>(st_.tankModelL);
   } else {
-    out_.tankL = NAN;
+    out_.tankPhysL = NAN;
   }
+  // Anzeige und Reichweite nur mit dem nutzbaren Teil: die Reserve bleibt für die Pumpe (Jos Wunsch)
+  out_.tankL = std::isnan(out_.tankPhysL) ? NAN : std::max(0.0f, out_.tankPhysL - profile_.reserve());
 
   // Reichweite: nur die Prognose wird geglättet; unter 80 km vorsichtig mit dem höchsten Schnitt (A7)
   const float raw = fuel::prognosis(out_.avg100, out_.avg10, out_.avgFills);
@@ -759,7 +780,7 @@ trip::FillRecord VehicleCalc::refuel(float liters, float price, bool full, trip:
   r.costPer100 = std::isnan(r.l100) ? NAN : r.l100 * (std::isnan(st_.mixPrice) ? price : st_.mixPrice);
   r.source = src;
 
-  const float rest = out_.tankL;
+  const float rest = out_.tankPhysL;  // physisch, mit Reserve: Tankmodell und Mischpreis rechnen mit dem echten Inhalt
   if (!std::isnan(price)) {  // ohne Preis bleibt der bisherige Mischpreis
     st_.mixPrice = fuel::mixPrice(rest, st_.mixPrice, liters, price);
     st_.pumpPrice = price;

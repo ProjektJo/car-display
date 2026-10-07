@@ -133,6 +133,7 @@ lv_obj_t* dispLbl;
 lv_obj_t* tankLbl;
 lv_obj_t* powerLbl;
 lv_obj_t* odoLbl;
+lv_obj_t* reserveLbl;
 float draftOdo = NAN;        // Kilometerstand im Assistenten (NAN = nicht eingetragen)
 float pendingOdo = NAN;      // nach dem Anlegen senden, sobald das neue Profil geladen ist
 uint8_t idBeforeCreate = 0;
@@ -150,6 +151,9 @@ void showDraft() {
   lv_label_set_text(tankLbl, t);
   snprintf(t, sizeof(t), "%u kW", static_cast<unsigned>(draft.powerKw));
   lv_label_set_text(powerLbl, t);
+  fmt::number(num, sizeof(num), draft.reserve(), 1);
+  snprintf(t, sizeof(t), "%s l%s", num, draft.reserveL >= 0 ? "" : " (auto)");
+  lv_label_set_text(reserveLbl, t);
   lv_label_set_text(bodyLbl, draft.bodyType().name);
   if (std::isnan(draftOdo)) {
     snprintf(t, sizeof(t), "eintragen");
@@ -172,13 +176,19 @@ float clampStep(float v, float step, float lo, float hi) {
   return v;
 }
 
-enum Step : uintptr_t { DISP_DOWN, DISP_UP, TANK_DOWN, TANK_UP, POWER_DOWN, POWER_UP };
+enum Step : uintptr_t { DISP_DOWN, DISP_UP, TANK_DOWN, TANK_UP, POWER_DOWN, POWER_UP, RES_DOWN, RES_UP };
 void onStep(lv_event_t* e) {
   switch (reinterpret_cast<uintptr_t>(lv_event_get_user_data(e))) {
     case DISP_DOWN: draft.displacementL = clampStep(draft.displacementL, -cfg::DISPLACEMENT_STEP_L, cfg::DISPLACEMENT_MIN_L, cfg::DISPLACEMENT_MAX_L); break;
     case DISP_UP: draft.displacementL = clampStep(draft.displacementL, cfg::DISPLACEMENT_STEP_L, cfg::DISPLACEMENT_MIN_L, cfg::DISPLACEMENT_MAX_L); break;
     case TANK_DOWN: draft.tankL = clampStep(draft.tankL, -cfg::TANK_STEP_L, cfg::TANK_MIN_L, cfg::TANK_MAX_L); break;
     case TANK_UP: draft.tankL = clampStep(draft.tankL, cfg::TANK_STEP_L, cfg::TANK_MIN_L, cfg::TANK_MAX_L); break;
+    case RES_DOWN:
+    case RES_UP: {
+      const float step = reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)) == RES_UP ? cfg::RESERVE_STEP_L : -cfg::RESERVE_STEP_L;
+      draft.reserveL = clampStep(draft.reserve(), step, 0.0f, cfg::RESERVE_LIMIT_L);
+      break;
+    }
     case POWER_DOWN:
       draft.powerKw = static_cast<uint16_t>(clampStep(draft.powerKw, -cfg::POWER_STEP_KW, cfg::POWER_MIN_KW, cfg::POWER_MAX_KW));
       powerTouched = true;
@@ -229,7 +239,8 @@ void onCancel(lv_event_t*) {
 void onSave(lv_event_t*) {
   if (editMode) {
     Command c{CmdType::SetVehicle};
-    c.i = (draft.fuel == FuelType::Diesel ? 1 : 0) | (draft.powerKw << 8);
+    c.i = (draft.fuel == FuelType::Diesel ? 1 : 0) | (draft.powerKw << 8) |
+          (static_cast<int32_t>(std::lround(draft.reserve() * 10.0f)) << 20);
     c.f = draft.displacementL;
     c.f2 = draft.tankL;
     commands::toCalc(c);
@@ -436,6 +447,14 @@ void showWizard() {
   lv_obj_set_style_text_align(powerLbl, LV_TEXT_ALIGN_CENTER, 0);
   button(r, SYM_UP, STEP_BTN_W, onStep, reinterpret_cast<void*>(POWER_UP));
 
+  // Reserve: nicht nutzbare Restmenge (Pumpe); die Anzeige zeigt 0 l, wenn nur noch die Reserve drin ist
+  r = row(card, "Reserve");
+  button(r, SYM_DOWN, STEP_BTN_W, onStep, reinterpret_cast<void*>(RES_DOWN));
+  reserveLbl = theme::label(r, &font_m14, false);
+  lv_obj_set_width(reserveLbl, VALUE_W + 24);
+  lv_obj_set_style_text_align(reserveLbl, LV_TEXT_ALIGN_CENTER, 0);
+  button(r, SYM_UP, STEP_BTN_W, onStep, reinterpret_cast<void*>(RES_UP));
+
   r = row(card, "Kilometerstand");
   lv_obj_t* odoBtn = button(r, "", NAME_W, onOdo);
   odoLbl = lv_obj_get_child(odoBtn, 0);
@@ -473,6 +492,7 @@ void openEditor(const CarSnapshot& s) {
   if (!std::isnan(s.profile.tankL)) draft.tankL = s.profile.tankL;
   draft.powerKw = s.profile.powerKw;
   draft.body = s.profile.body;
+  draft.reserveL = s.profile.reserveL;
   const float odo = s.odoKm.get(s.now);
   draftOdo = std::isnan(odo) ? NAN : std::round(odo);
   editOdoStart = draftOdo;

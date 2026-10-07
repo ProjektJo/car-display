@@ -50,6 +50,7 @@ void test_source_order() {
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Petrol, false, false, false, true) == Source::None);
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Diesel, false, true, true, true) == Source::None);
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Diesel, true, true, true, true) == Source::FuelRate);
+  TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Diesel, false, true, true, true, false, true) == Source::Maf);  // mit λ
 }
 
 // Status 0x03 = 4 -> Schub; ohne 0x03 über Drosselklappe, Drehzahl und Tempo

@@ -2,6 +2,7 @@
 // wiedererkannt wird (VIN, PID-Liste, Protokoll). Gespeichert als JSON in /profiles/ (storage).
 // Reines C++, damit Rechenmodule und Tests es ohne Arduino nutzen können.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -23,6 +24,7 @@ struct Profile {
   FuelType fuel = FuelType::Petrol;
   float displacementL = cfg::DEFAULT_DISPLACEMENT_L;
   float tankL = cfg::DEFAULT_TANK_L;
+  float reserveL = NAN;         // nicht nutzbare Restmenge (Pumpe), NAN = pauschal aus der Tankgröße
   float ve = cfg::DEFAULT_VE;
   float fuelCal = cfg::DEFAULT_FUEL_CAL;
   float kmFactor = cfg::DEFAULT_KM_FACTOR;
@@ -41,6 +43,13 @@ struct Profile {
   void applyDerivedDefaults() {
     shiftRpm = fuel == FuelType::Diesel ? cfg::SHIFT_RPM_DIESEL : cfg::SHIFT_RPM_PETROL;
     powerKw = static_cast<uint16_t>(displacementL * cfg::POWER_KW_PER_L + 0.5f);
+  }
+
+  // Reserve: eingetragen oder pauschal 4 % des Tanks (1–3 l)
+  float reserve() const {
+    if (reserveL >= 0) return reserveL;
+    const float r = tankL * cfg::RESERVE_FRAC;
+    return r < cfg::RESERVE_MIN_L ? cfg::RESERVE_MIN_L : (r > cfg::RESERVE_MAX_L ? cfg::RESERVE_MAX_L : r);
   }
 
   bool pidSupported(uint8_t pid) const { return (supported[pid / 8] >> (pid % 8)) & 1; }

@@ -49,6 +49,7 @@ size_t profileToJson(const Profile& p, char* out, size_t size) {
   doc["fuel"] = p.fuel == FuelType::Diesel ? "diesel" : "petrol";
   doc["displacement_l"] = p.displacementL;
   doc["tank_l"] = p.tankL;
+  if (p.reserveL >= 0) doc["reserve_l"] = p.reserveL;
   doc["ve"] = p.ve;
   doc["fuel_cal"] = p.fuelCal;
   JsonArray gears = doc["gears"].to<JsonArray>();
@@ -80,6 +81,7 @@ bool profileFromJson(const char* json, Profile& p) {
   d.fuel = strcmp(doc["fuel"] | "petrol", "diesel") == 0 ? FuelType::Diesel : FuelType::Petrol;
   d.displacementL = doc["displacement_l"] | d.displacementL;
   d.tankL = doc["tank_l"] | d.tankL;
+  d.reserveL = doc["reserve_l"] | d.reserveL;
   d.ve = doc["ve"] | d.ve;
   d.fuelCal = doc["fuel_cal"] | d.fuelCal;
   JsonArrayConst gears = doc["gears"].as<JsonArrayConst>();

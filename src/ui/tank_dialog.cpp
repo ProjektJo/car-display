@@ -10,6 +10,7 @@
 #include "calc/trip.h"
 #include "config.h"
 #include "core/commands.h"
+#include "hw/touch.h"
 #include "ui/overlay.h"
 #include "ui/symbols.h"
 #include "ui/theme.h"
@@ -63,6 +64,14 @@ lv_obj_t* fullLbl = nullptr;
 lv_obj_t* entryLbl = nullptr;
 uint16_t handledSeq = 0;
 bool seqInit = false;
+// Zeitfenster (7.10.2026): erkannter Tankvorgang bzw. "Getankt?" ohne 0x2F schließen nach 15 s ohne
+// Berührung von selbst = nicht getankt; das Tankmodell rechnet mit dem gespeicherten Inhalt weiter.
+uint32_t timeoutGen = 0;      // Fenster mit Zeitlimit (overlay::generation), 0 = keins
+uint32_t timeoutOpened = 0;   // millis beim Öffnen
+lv_obj_t* timeBar = nullptr;  // schrumpfender Balken
+uint16_t handledAsk = 0;
+bool askInit = false;
+CarSnapshot askSnap;
 
 void build();
 
@@ -347,13 +356,13 @@ void buildMain() {
   lv_obj_align(costRow, LV_ALIGN_TOP_RIGHT, -12, ROW_Y + 2);
 
   const int32_t footY = BOARD_LCD_VER_RES - 2 * INSET - 10 - FOOT_BTN_H;
-  lv_obj_t* no = button(card, 12, footY, 96, FOOT_BTN_H, "Nicht getankt", onCancel, nullptr);
+  lv_obj_t* no = button(card, 12, footY, 96, FOOT_BTN_H, "\xEF\x80\x8D" " Nein", onCancel, nullptr);
   lv_obj_set_style_text_color(lv_obj_get_child(no, 0), theme::c(theme::MUTED), 0);
   // Kilometerstand: vorbelegt mit dem berechneten Stand, Tippen zum Bestätigen bzw. Ändern
   lv_obj_t* ob = button(card, 114, footY, 104, FOOT_BTN_H, "", onDigitTap, reinterpret_cast<void*>(static_cast<intptr_t>(Field::Odo)));
   odoLbl = lv_obj_get_child(ob, 0);
   lv_obj_set_style_text_font(odoLbl, &font_m14, 0);
-  button(card, BOARD_LCD_HOR_RES - 2 * INSET - 12 - 72, footY, 72, FOOT_BTN_H, "OK", onOk, nullptr, true);
+  button(card, BOARD_LCD_HOR_RES - 2 * INSET - 12 - 72, footY, 72, FOOT_BTN_H, "\xEF\x80\x8C" " OK", onOk, nullptr, true);
   refresh();
 }
 
@@ -387,7 +396,96 @@ void open(const CarSnapshot& s, float liters, bool detected) {
 
 }  // namespace
 
-void openManual(const CarSnapshot& s) { open(s, s.fillL.get(s.now), false); }
+// ---------- "Getankt?" ohne Füllstand vom Auto ----------
+
+void startTimeout(lv_obj_t* parent, int32_t y) {
+  timeoutGen = overlay::generation();
+  timeoutOpened = millis();
+  timeBar = box(parent, 12, y, BOARD_LCD_HOR_RES - 2 * INSET - 24, 4);
+  lv_obj_set_style_radius(timeBar, 2, 0);
+  lv_obj_set_style_bg_color(timeBar, theme::c(theme::ACCENT), 0);
+  lv_obj_set_style_bg_opa(timeBar, LV_OPA_COVER, 0);
+}
+
+// Vollgetankt: Liter = Tankgröße minus physischer Rest (sonst die seit dem letzten Tanken berechneten)
+void onAskFull(lv_event_t*) {
+  const CarSnapshot& s = askSnap;
+  const float phys = s.tankPhysL.get(s.now);
+  float liters = NAN;
+  if (!std::isnan(phys) && !std::isnan(s.profile.tankL)) liters = s.profile.tankL - phys;
+  if (!(liters > 0)) liters = s.fillL.get(s.now);
+  if (!(liters > 0)) liters = std::isnan(s.profile.tankL) ? 0.0f : s.profile.tankL / 2;  // grobe Annahme
+  const float price = s.pumpPrice.get(s.now);
+  Command c{CmdType::Refuel};
+  c.f = liters;
+  c.f2 = std::isnan(price) ? cfg::PRICE_DEFAULT : price;
+  c.i = 1 | (static_cast<int>(trip::FillSource::Computed) << 1);
+  if (c.f > 0) commands::toCalc(c);
+  overlay::close();
+}
+
+void onAskLiters(lv_event_t*) {
+  timeoutGen = 0;
+  const CarSnapshot s = askSnap;
+  open(s, s.fillL.get(s.now), false);  // Tank-Fenster ohne Zeitlimit
+}
+
+void onAskNo(lv_event_t*) { overlay::close(); }
+
+void openAsk(const CarSnapshot& s) {
+  askSnap = s;
+  card = overlay::open("", false, 20);
+  gen = overlay::generation();
+  lv_obj_set_style_border_color(card, theme::c(theme::ACCENT), 0);
+  lv_obj_set_style_pad_all(card, 0, 0);
+  lv_obj_set_layout(card, LV_LAYOUT_NONE);
+  const int32_t w = BOARD_LCD_HOR_RES - 40;
+  lv_obj_t* icon = theme::label(card, &font_m20, false, SYM_PUMP);
+  lv_obj_set_style_text_color(icon, theme::c(theme::ACCENT), 0);
+  lv_obj_set_pos(icon, 14, 14);
+  lv_obj_t* t = theme::label(card, &font_m20, false, "Getankt?");
+  lv_obj_set_pos(t, 44, 12);
+  const float usable = s.tankL.get(s.now);
+  char txt[48], n[12];
+  if (std::isnan(usable)) {
+    snprintf(txt, sizeof(txt), "Tankinhalt unbekannt");
+  } else {
+    fmt::number(n, sizeof(n), usable, 0);
+    snprintf(txt, sizeof(txt), "Tank zuletzt: %s l", n);
+  }
+  lv_obj_t* sub = theme::label(card, &font_m14, true, txt);
+  lv_obj_set_pos(sub, 14, 46);
+  // drei große Knöpfe mit Symbol
+  const int32_t bw = (w - 2 * 12 - 2 * 8) / 3, by = 82, bh = 64;
+  struct B { const char* icon; const char* text; lv_event_cb_t cb; uint32_t col; };
+  const B bs[3] = {{LV_SYMBOL_OK, "Voll", onAskFull, theme::GOOD},
+                   {LV_SYMBOL_EDIT, "Liter", onAskLiters, theme::ACCENT},
+                   {LV_SYMBOL_CLOSE, "Nein", onAskNo, theme::MUTED}};
+  for (int i = 0; i < 3; i++) {
+    lv_obj_t* b = box(card, 12 + i * (bw + 8), by, bw, bh);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(b, theme::RADIUS_TILE, 0);
+    lv_obj_set_style_border_width(b, 1, 0);
+    lv_obj_set_style_border_color(b, theme::c(bs[i].col), 0);
+    lv_obj_set_style_bg_color(b, theme::c(theme::SURFACE), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(b, theme::c(theme::LINE), LV_STATE_PRESSED);
+    lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(b, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t* ic = theme::label(b, &font_v24, false, bs[i].icon);
+    lv_obj_set_style_text_color(ic, theme::c(bs[i].col), 0);
+    theme::label(b, &font_m14, false, bs[i].text);
+    lv_obj_add_event_cb(b, bs[i].cb, LV_EVENT_CLICKED, nullptr);
+  }
+  lv_obj_t* hint = theme::label(card, &font_m12, true, "Ohne Antwort: nicht getankt");
+  lv_obj_set_pos(hint, 14, by + bh + 10);
+  startTimeout(card, by + bh + 30);
+}
+
+void openManual(const CarSnapshot& s) {
+  timeoutGen = 0;
+  open(s, s.fillL.get(s.now), false);
+}
 
 void update(const CarSnapshot& s) {
   if (!seqInit) {
@@ -398,6 +496,34 @@ void update(const CarSnapshot& s) {
     handledSeq = s.refuelSeq;
     Serial.printf("Tankvorgang erkannt: %.1f l\n", s.refuelL);
     open(s, s.refuelL, true);
+    startTimeout(card, BOARD_LCD_VER_RES - 2 * INSET - 6);
+  }
+  // Ohne 0x2F: "Getankt?" (warmer Motor und Tank höchstens halb voll, bzw. Inhalt unbekannt)
+  if (!askInit) {
+    askInit = true;
+    handledAsk = s.refuelAskSeq;
+  }
+  if (s.refuelAskSeq != handledAsk) {
+    handledAsk = s.refuelAskSeq;
+    Serial.println("Tanken? Abfrage ohne Füllstand vom Auto");
+    openAsk(s);
+  }
+  // Zeitlimit: Balken schrumpft; eine Berührung hebt das Limit auf; abgelaufen = nicht getankt
+  if (timeoutGen && overlay::isOpen() && overlay::generation() == timeoutGen) {
+    const uint32_t now = millis();
+    if (touch::lastTouchMs() > timeoutOpened) {
+      timeoutGen = 0;
+      if (timeBar) lv_obj_add_flag(timeBar, LV_OBJ_FLAG_HIDDEN);
+    } else if (now - timeoutOpened >= cfg::REFUEL_ASK_TIMEOUT_MS) {
+      timeoutGen = 0;
+      Serial.println("Tanken: keine Antwort, nicht getankt");
+      overlay::close();
+    } else if (timeBar) {
+      const int32_t full = BOARD_LCD_HOR_RES - 2 * INSET - 24;
+      lv_obj_set_width(timeBar, full - static_cast<int32_t>(full * (now - timeoutOpened) / cfg::REFUEL_ASK_TIMEOUT_MS));
+    }
+  } else if (timeoutGen) {
+    timeoutGen = 0;
   }
 }
 

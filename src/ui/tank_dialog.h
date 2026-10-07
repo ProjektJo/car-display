@@ -1,6 +1,8 @@
 // Tank-Fenster (U Tank-Fenster, A7 Tankfüllung): getankte Liter und Preis pro Liter mit ▲/▼ je Stelle,
 // Ziffernfeld beim Tippen auf die Ziffern, Schalter "vollgetankt", Kosten live. Liegt über jeder Seite und
 // schließt nicht von selbst. Öffnet sich automatisch, wenn calcTask einen Tankvorgang erkennt (nur mit 0x2F).
+// Seit 7.10.2026: erkannte Tankvorgänge und "Getankt?" (ohne 0x2F, warmer Motor) schließen nach 15 s ohne
+// Berührung von selbst = nicht getankt.
 #pragma once
 #include "core/car_state.h"
 
