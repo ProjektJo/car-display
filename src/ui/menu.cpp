@@ -44,7 +44,7 @@ enum MenuRow {
   M_TILES, M_TIPS, M_COLD, M_SPRINT, M_ENDTRIP, M_INFO,      // rechte Spalte
   M_COUNT
 };
-const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeugart", "Wartung", "Diagnose", "Getankt",
+const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeug", "Wartung", "Diagnose", "Getankt",
                                         "Kacheln zurücksetzen", "Spartipps", "Kalt-Grenze", "Auto-Sprint", "Fahrt beenden",
                                         "Info"};
 // Reihenfolge im Menü: oben häufig, unten selten (Jos Wunsch)
@@ -456,7 +456,7 @@ void onMenuRow(lv_event_t* e) {
   switch (r) {
     case M_BRIGHT: openBrightness(); break;
     case M_GOAL: openGoal(); break;
-    case M_BODY: openBody(); break;
+    case M_BODY: vehicledlg::openEditor(snap); break;
     case M_MAINT: openMaintenance(); break;
     case M_DIAG: openDiagnose(); break;
     case M_REFUEL: tankdlg::openManual(snap); break;
@@ -622,8 +622,9 @@ void update(const CarSnapshot& s) {
     if (u.goalMode == 0) snprintf(text, sizeof(text), "aus");
     else snprintf(text, sizeof(text), "%s%s", u.goalMode == 1 ? "auto " : "", n);
     setText(menuValues[M_GOAL], menuShown[M_GOAL], sizeof(menuShown[0]), text);
-    setText(menuValues[M_BODY], menuShown[M_BODY], sizeof(menuShown[0]),
-            cfg::BODY_TYPES[s.profile.body < cfg::BODY_TYPE_COUNT ? s.profile.body : 0].name);
+    fmt::number(n, sizeof(n), s.profile.displacementL, 1);
+    snprintf(text, sizeof(text), "%s l " "\xC2\xB7" " %s", n, s.profile.diesel ? "Diesel" : "Benzin");
+    setText(menuValues[M_BODY], menuShown[M_BODY], sizeof(menuShown[0]), text);
     // Wartung: nächster Termin
     const float oil = s.oilLeftKm.get(s.now), insp = s.inspLeftKm.get(s.now);
     if (std::isnan(oil)) {

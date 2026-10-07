@@ -8,6 +8,9 @@
 
 namespace vehicledlg {
 
+// Menü "Fahrzeug": Daten des geladenen Profils bearbeiten (Kraftstoff, Hubraum, Tank, Leistung, Art)
+void openEditor(const CarSnapshot& s);
+
 void openChooser();
 void openWizard();
 

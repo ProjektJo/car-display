@@ -245,6 +245,18 @@ void VehicleCalc::stepThermo(const CarState& s, uint32_t nowMs, float dtS, bool 
   }
 }
 
+void VehicleCalc::setVehicle(FuelType fuel, float displacementL, float tankL, uint16_t powerKw) {
+  if (!active_) return;
+  if (displacementL >= cfg::DISPLACEMENT_MIN_L && displacementL <= cfg::DISPLACEMENT_MAX_L) profile_.displacementL = displacementL;
+  if (tankL >= cfg::TANK_MIN_L && tankL <= cfg::TANK_MAX_L) profile_.tankL = tankL;
+  if (powerKw >= cfg::POWER_MIN_KW && powerKw <= cfg::POWER_MAX_KW) profile_.powerKw = powerKw;
+  if (fuel != profile_.fuel) {
+    profile_.fuel = fuel;
+    profile_.shiftRpm = fuel == FuelType::Diesel ? cfg::SHIFT_RPM_DIESEL : cfg::SHIFT_RPM_PETROL;
+  }
+  profileChanged_ = true;
+}
+
 void VehicleCalc::setKmFactor(float f) {
   if (!active_ || !(f >= cfg::KMF_MIN && f <= cfg::KMF_MAX)) return;
   // halbe Korrektur je Vergleich, dämpft Ausreißer

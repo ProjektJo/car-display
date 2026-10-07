@@ -1,9 +1,11 @@
 #include "vehicle_dialog.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "config.h"
+#include "core/commands.h"
 #include "core/profile.h"
 #include "storage/storage_task.h"
 #include "ui/overlay.h"
@@ -18,14 +20,15 @@ void showWizard();
 namespace {
 
 // ANNAHME: eigenes Layout (die Vorschau hat keins), Zeilen wie im Menü, Knöpfe wie "Fertig"
-constexpr int32_t ROW_H = 30;
+// 7.10.2026 größer (Jo: Menü zu klein und fummelig)
+constexpr int32_t ROW_H = 42;
 constexpr int32_t ROW_PAD_HOR = 2;
-constexpr int32_t BTN_H = 24;
-constexpr int32_t STEP_BTN_W = 30;
-constexpr int32_t VALUE_W = 64;
+constexpr int32_t BTN_H = 32;
+constexpr int32_t STEP_BTN_W = 42;
+constexpr int32_t VALUE_W = 72;
 constexpr int32_t NAME_W = 168;
-constexpr int32_t CHIP_W = 72;
-constexpr int32_t ACTION_W = 96;
+constexpr int32_t CHIP_W = 76;
+constexpr int32_t ACTION_W = 110;
 constexpr int32_t KB_TEXT_H = 30;
 
 uint16_t handledAsk = 0;
@@ -34,6 +37,9 @@ bool askingNow = false;
 
 // Werte des Assistenten (bleiben beim Wechsel zur Tastatur erhalten)
 Profile draft;
+// Bearbeiten statt neu anlegen (Menü "Fahrzeug"): ändert das geladene Profil
+bool editMode = false;
+bool powerTouched = false;  // Leistung von Hand gesetzt (sonst aus dem Hubraum geschätzt)
 
 // ---------- kleine Bausteine ----------
 
@@ -50,7 +56,7 @@ lv_obj_t* button(lv_obj_t* parent, const char* text, int32_t w, lv_event_cb_t cb
   lv_obj_set_style_border_color(b, theme::c(accent ? theme::ACCENT : theme::LINE), 0);
   lv_obj_set_style_border_width(b, 1, 0);
   lv_obj_set_style_radius(b, theme::RADIUS_TILE, 0);
-  lv_obj_t* l = theme::label(b, &font_m12, false, text);
+  lv_obj_t* l = theme::label(b, &font_m14, false, text);
   if (accent) lv_obj_set_style_text_color(l, theme::c(theme::ACCENT), 0);
   lv_obj_center(l);
   if (cb) {
@@ -74,7 +80,7 @@ lv_obj_t* row(lv_obj_t* parent, const char* key) {
   lv_obj_set_style_pad_column(r, 4, 0);
   lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
   if (key) {
-    lv_obj_t* k = theme::label(r, &font_m12, false, key);
+    lv_obj_t* k = theme::label(r, &font_m14, false, key);
     lv_obj_set_flex_grow(k, 1);
   }
   return r;
@@ -123,6 +129,8 @@ void onChooserDone(lv_event_t*) { overlay::close(); }
 lv_obj_t* nameLbl;
 lv_obj_t* dispLbl;
 lv_obj_t* tankLbl;
+lv_obj_t* powerLbl;
+lv_obj_t* bodyLbl;
 lv_obj_t* fuelBtns[2];
 
 void showDraft() {
@@ -134,6 +142,9 @@ void showDraft() {
   fmt::number(num, sizeof(num), draft.tankL, 0);
   snprintf(t, sizeof(t), "%s l", num);
   lv_label_set_text(tankLbl, t);
+  snprintf(t, sizeof(t), "%u kW", static_cast<unsigned>(draft.powerKw));
+  lv_label_set_text(powerLbl, t);
+  lv_label_set_text(bodyLbl, draft.bodyType().name);
   for (int i = 0; i < 2; i++) {
     const bool sel = (i == 1) == (draft.fuel == FuelType::Diesel);
     lv_obj_set_style_border_color(fuelBtns[i], theme::c(sel ? theme::ACCENT : theme::LINE), 0);
@@ -148,16 +159,31 @@ float clampStep(float v, float step, float lo, float hi) {
   return v;
 }
 
-enum Step : uintptr_t { DISP_DOWN, DISP_UP, TANK_DOWN, TANK_UP };
+enum Step : uintptr_t { DISP_DOWN, DISP_UP, TANK_DOWN, TANK_UP, POWER_DOWN, POWER_UP };
 void onStep(lv_event_t* e) {
   switch (reinterpret_cast<uintptr_t>(lv_event_get_user_data(e))) {
     case DISP_DOWN: draft.displacementL = clampStep(draft.displacementL, -cfg::DISPLACEMENT_STEP_L, cfg::DISPLACEMENT_MIN_L, cfg::DISPLACEMENT_MAX_L); break;
     case DISP_UP: draft.displacementL = clampStep(draft.displacementL, cfg::DISPLACEMENT_STEP_L, cfg::DISPLACEMENT_MIN_L, cfg::DISPLACEMENT_MAX_L); break;
     case TANK_DOWN: draft.tankL = clampStep(draft.tankL, -cfg::TANK_STEP_L, cfg::TANK_MIN_L, cfg::TANK_MAX_L); break;
     case TANK_UP: draft.tankL = clampStep(draft.tankL, cfg::TANK_STEP_L, cfg::TANK_MIN_L, cfg::TANK_MAX_L); break;
+    case POWER_DOWN:
+      draft.powerKw = static_cast<uint16_t>(clampStep(draft.powerKw, -cfg::POWER_STEP_KW, cfg::POWER_MIN_KW, cfg::POWER_MAX_KW));
+      powerTouched = true;
+      break;
+    case POWER_UP:
+      draft.powerKw = static_cast<uint16_t>(clampStep(draft.powerKw, cfg::POWER_STEP_KW, cfg::POWER_MIN_KW, cfg::POWER_MAX_KW));
+      powerTouched = true;
+      break;
   }
+  // Leistung folgt dem Hubraum, bis sie von Hand gesetzt wurde
+  if (!powerTouched) draft.powerKw = static_cast<uint16_t>(draft.displacementL * cfg::POWER_KW_PER_L + 0.5f);
   // Auf eine Nachkommastelle runden, damit sich kein Rundungsfehler aufsummiert
   draft.displacementL = static_cast<int>(draft.displacementL * 10.0f + 0.5f) / 10.0f;
+  showDraft();
+}
+
+void onBody(lv_event_t*) {
+  draft.body = static_cast<uint8_t>((draft.body + 1) % cfg::BODY_TYPE_COUNT);
   showDraft();
 }
 
@@ -170,6 +196,10 @@ void openKeyboard();
 void onName(lv_event_t*) { switchTo(openKeyboard); }
 
 void onCancel(lv_event_t*) {
+  if (editMode) {
+    closeChosen();
+    return;
+  }
   ProfileSummary list[cfg::MAX_PROFILES];
   if (storage::summaries(list, cfg::MAX_PROFILES) > 0) {
     switchTo(openChooser);  // zurück zur Liste
@@ -179,7 +209,21 @@ void onCancel(lv_event_t*) {
 }
 
 void onSave(lv_event_t*) {
+  if (editMode) {
+    Command c{CmdType::SetVehicle};
+    c.i = (draft.fuel == FuelType::Diesel ? 1 : 0) | (draft.powerKw << 8);
+    c.f = draft.displacementL;
+    c.f2 = draft.tankL;
+    commands::toCalc(c);
+    Command b{CmdType::SetBody};
+    b.i = draft.body;
+    commands::toCalc(b);
+    closeChosen();
+    return;
+  }
+  const uint16_t kw = draft.powerKw;
   draft.applyDerivedDefaults();
+  if (powerTouched) draft.powerKw = kw;
   closeChosen();
   storage::createProfile(draft);
 }
@@ -188,6 +232,9 @@ void startDraft() {
   ProfileSummary list[cfg::MAX_PROFILES];
   const int n = storage::summaries(list, cfg::MAX_PROFILES);
   draft = Profile{};
+  editMode = false;
+  powerTouched = false;
+  draft.powerKw = static_cast<uint16_t>(draft.displacementL * cfg::POWER_KW_PER_L + 0.5f);
   if (n == 0)
     snprintf(draft.name, sizeof(draft.name), "%s", cfg::DEFAULT_PROFILE_NAME);
   else
@@ -316,15 +363,27 @@ void openChooser() {
 
 // Assistent mit den Werten in draft zeigen (auch nach der Tastatur)
 void showWizard() {
-  lv_obj_t* card = overlay::open("Neues Fahrzeug", true, theme::DIALOG_INSET_SUB);
-  watchClose();
+  // Neues Fahrzeug schließt nicht von selbst (die Daten sollen wirklich eingegeben werden, Jos Wunsch)
+  lv_obj_t* card = overlay::open(editMode ? "Fahrzeug" : "Neues Fahrzeug: bitte eintragen", editMode, theme::DIALOG_INSET_SUB);
+  if (editMode) {
+    shown = true;
+    overlay::setOnClose([] { shown = false; });
+  } else {
+    watchClose();
+  }
   lv_obj_set_style_pad_row(card, 0, 0);
   lv_obj_set_style_margin_bottom(lv_obj_get_child(card, 0), 6, 0);
+  lv_obj_add_flag(card, LV_OBJ_FLAG_SCROLLABLE);  // mehr Zeilen als Platz: wischen
+  lv_obj_set_scroll_dir(card, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_ACTIVE);
 
   lv_obj_t* r = row(card, "Name");
-  lv_obj_t* nameBtn = button(r, "", NAME_W, onName);
-  nameLbl = lv_obj_get_child(nameBtn, 0);
-  lv_obj_set_style_text_font(nameLbl, &font_m14, 0);
+  if (editMode) {
+    nameLbl = theme::label(r, &font_m14, true, "");
+  } else {
+    lv_obj_t* nameBtn = button(r, "", NAME_W, onName);
+    nameLbl = lv_obj_get_child(nameBtn, 0);
+  }
 
   r = row(card, "Kraftstoff");
   fuelBtns[0] = button(r, "Benzin", CHIP_W, onFuel, reinterpret_cast<void*>(0));
@@ -344,6 +403,17 @@ void showWizard() {
   lv_obj_set_style_text_align(tankLbl, LV_TEXT_ALIGN_CENTER, 0);
   button(r, SYM_UP, STEP_BTN_W, onStep, reinterpret_cast<void*>(TANK_UP));
 
+  r = row(card, "Leistung");
+  button(r, SYM_DOWN, STEP_BTN_W, onStep, reinterpret_cast<void*>(POWER_DOWN));
+  powerLbl = theme::label(r, &font_m14, false);
+  lv_obj_set_width(powerLbl, VALUE_W);
+  lv_obj_set_style_text_align(powerLbl, LV_TEXT_ALIGN_CENTER, 0);
+  button(r, SYM_UP, STEP_BTN_W, onStep, reinterpret_cast<void*>(POWER_UP));
+
+  r = row(card, "Art");
+  lv_obj_t* bodyBtn = button(r, "", NAME_W, onBody);
+  bodyLbl = lv_obj_get_child(bodyBtn, 0);
+
   lv_obj_t* spacer = lv_obj_create(card);  // Knöpfe an den unteren Rand
   lv_obj_remove_style_all(spacer);
   lv_obj_set_width(spacer, LV_PCT(100));
@@ -359,6 +429,20 @@ void showWizard() {
 
 void openWizard() {
   startDraft();
+  showWizard();
+}
+
+void openEditor(const CarSnapshot& s) {
+  if (!s.profile.id) return;
+  draft = Profile{};
+  editMode = true;
+  powerTouched = true;  // gespeicherte Leistung nicht überschreiben
+  snprintf(draft.name, sizeof(draft.name), "%s", s.profile.name);
+  draft.fuel = s.profile.diesel ? FuelType::Diesel : FuelType::Petrol;
+  if (!std::isnan(s.profile.displacementL)) draft.displacementL = s.profile.displacementL;
+  if (!std::isnan(s.profile.tankL)) draft.tankL = s.profile.tankL;
+  draft.powerKw = s.profile.powerKw;
+  draft.body = s.profile.body;
   showWizard();
 }
 

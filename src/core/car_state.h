@@ -92,6 +92,7 @@ struct ProfileInfo {
   uint16_t coldRpmLimit = cfg::DEFAULT_COLD_RPM_LIMIT;  // Kalter Motor (A9)
   uint8_t coldCoolantC = cfg::DEFAULT_COLD_COOLANT_C;
   uint16_t powerKw = 55;            // Skala des Leistungsbalkens (A10)
+  float displacementL = NAN;        // Hubraum (Menü "Fahrzeug")
   uint16_t redlineRpm = cfg::DEFAULT_REDLINE_RPM;
 };
 

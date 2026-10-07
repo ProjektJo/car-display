@@ -97,6 +97,7 @@ class VehicleCalc {
   void setInterval(int which, float km);
   void resetAverages(uint8_t mask);            // Bit 0: 1 km, 1: 10 km, 2: 100 km, 3: Tank
   void setKmFactor(float f);                   // aus dem GPS-Vergleich (A7)
+  void setVehicle(FuelType fuel, float displacementL, float tankL, uint16_t powerKw);  // Menü "Fahrzeug"
 
  private:
   void decideTrip(const CarState& s, uint32_t nowMs);

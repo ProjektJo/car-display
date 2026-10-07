@@ -364,6 +364,7 @@ void task(void*) {
         case 'g': tankdlg::openManual(snap); break;
         case 'x': overlay::close(); break;
         case 'm': openMenu(); break;
+        case 'v': vehicledlg::openEditor(snap); break;  // Fahrzeug bearbeiten (Fehlersuche)
         case 't': startscreen::hide(); openTouchTest(); break;
         case 'f': {  // Lage umschalten (Fehlersuche Touch)
           UiSettings& u = uiprefs::get();

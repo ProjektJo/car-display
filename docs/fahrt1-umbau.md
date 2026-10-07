@@ -64,3 +64,10 @@ Neu:
   Auto-Sprint springt nicht mehr zurück, solange die Messung läuft (Rohpedal lag unter 50 %).
   Abbruch bei weniger als 0,4 m/s² über 3 s. Serielle Diagnose „Sprint: …“ mit Abbruchgrund.
 - Eco: Wert des Fahrt-Punkts wird so platziert, dass er keinen festen Wert oder Punkt überdeckt.
+
+## Nachtrag 3: Fahrzeugdaten beim Einrichten (7.10.2026)
+- Assistent „Neues Fahrzeug“ fragt Name, Kraftstoff, Hubraum, Tank, Leistung und Art ab und schließt nicht
+  mehr von selbst (vorher entstand nach 60 s ohne Eingabe ein Profil mit Standardwerten).
+- Menü → „Fahrzeug“ öffnet dieselben Felder für das geladene Profil (Befehl `SetVehicle` an calcTask,
+  storageTask übernimmt Kraftstoff, Hubraum, Tank und Leistung ins Profil).
+- GPS-Modul ist wahlweise: ohne GPS keine Uhr, kein Auto-Tag/Nacht, Tempo vom Auto, km-Faktor bleibt 1.

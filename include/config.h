@@ -121,6 +121,7 @@ constexpr float POWER_KW_PER_L = 46.0f;
 // Eingabebereiche im Assistenten
 constexpr float DISPLACEMENT_MIN_L = 0.6f, DISPLACEMENT_MAX_L = 6.0f, DISPLACEMENT_STEP_L = 0.1f;
 constexpr float TANK_MIN_L = 20.0f, TANK_MAX_L = 120.0f, TANK_STEP_L = 1.0f;
+constexpr uint16_t POWER_MIN_KW = 20, POWER_MAX_KW = 400, POWER_STEP_KW = 5;  // Leistung im Assistenten
 
 // Fahrzeugart: Gewicht inkl. Fahrer und cw·A (A6 Tabelle). Index 0 = Standard (Kleinwagen).
 struct BodyType {

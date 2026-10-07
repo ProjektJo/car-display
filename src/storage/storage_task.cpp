@@ -153,6 +153,7 @@ bool activate(uint8_t id) {
     s.profile.coldRpmLimit = p.coldRpmLimit;
     s.profile.coldCoolantC = p.coldCoolantC;
     s.profile.powerKw = p.powerKw;
+    s.profile.displacementL = p.displacementL;
     s.profile.redlineRpm = p.redlineRpm;
     snprintf(s.link.vehicle, sizeof(s.link.vehicle), "%s", p.name);
   });
@@ -333,6 +334,12 @@ void handle(const Msg& m) {
       p.body = m.profile.body;            // Fahrzeugart und Kalt-Grenze aus dem Menü
       p.coldRpmLimit = m.profile.coldRpmLimit;
       p.kmFactor = m.profile.kmFactor;  // mit GPS nachgeführt
+      // Fahrzeugdaten aus dem Menü "Fahrzeug" (7.10.2026)
+      p.fuel = m.profile.fuel;
+      p.displacementL = m.profile.displacementL;
+      p.tankL = m.profile.tankL;
+      p.powerKw = m.profile.powerKw;
+      p.shiftRpm = m.profile.shiftRpm;
       memcpy(p.gears, m.profile.gears, sizeof(p.gears));
       if (store::saveProfile(p)) refreshList();
       carstate::modify([&](CarState& s) {
