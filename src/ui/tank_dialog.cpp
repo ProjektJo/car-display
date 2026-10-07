@@ -37,7 +37,7 @@ constexpr int MAX_CENTS = 999;    // 9,99 €
 constexpr int32_t KEY_X = 150, KEY_Y = 8, KEY_W = 48, KEY_H = 44, KEY_STEP_X = 52, KEY_STEP_Y = 48;
 constexpr const char* KEY_BACK = "\xEF\x95\x9A";  // U+F55A Löschtaste
 
-enum class Field : uint8_t { None, Liters, Price };
+enum class Field : uint8_t { None, Liters, Price, Odo };
 
 struct State {
   int tenths = 0;         // Liter × 10
@@ -47,7 +47,10 @@ struct State {
   bool detected = false;  // über Tankanzeige erkannt
   Field keypad = Field::None;
   char entry[8] = "";     // Ziffernfeld-Eingabe
+  int32_t odo = -1;       // Kilometerstand: vorbelegt mit dem berechneten, -1 = unbekannt
+  bool odoEdited = false; // von Hand bestätigt bzw. korrigiert
 } st;
+lv_obj_t* odoLbl = nullptr;
 
 uint32_t gen = 0;
 lv_obj_t* card = nullptr;
@@ -122,6 +125,15 @@ void refresh() {
   const uint32_t c = st.full ? theme::GOOD : theme::MUTED;
   lv_obj_set_style_text_color(fullLbl, theme::c(c), 0);
   lv_obj_set_style_border_color(fullChip, theme::c(st.full ? theme::GOOD : theme::LINE), 0);
+  // Kilometerstand: berechnet (grau) bzw. eingegeben (weiß)
+  if (st.odo < 0) {
+    snprintf(t, sizeof(t), "km " SYM_DASH);
+  } else {
+    fmt::number(n, sizeof(n), static_cast<float>(st.odo), 0);
+    snprintf(t, sizeof(t), "%s km", n);
+  }
+  lv_label_set_text(odoLbl, t);
+  lv_obj_set_style_text_color(odoLbl, theme::c(st.odoEdited ? theme::TEXT : theme::MUTED), 0);
 }
 
 // ▲/▼ je Stelle; Überlauf rechnet weiter (1,79⁹ + 10 ct = 1,89⁹)
@@ -153,6 +165,12 @@ void onOk(lv_event_t*) {
   const trip::FillSource src = st.edited ? trip::FillSource::Entered
                                : st.detected ? trip::FillSource::Detected
                                              : trip::FillSource::Computed;
+  // Kilometerstand übernehmen, wenn er von Hand eingetragen wurde (stellt den Tachostand und die Wartung)
+  if (st.odoEdited && st.odo > 0) {
+    Command o{CmdType::SetOdo};
+    o.f = static_cast<float>(st.odo);
+    commands::toCalc(o);
+  }
   Command c{CmdType::Refuel};
   c.f = st.tenths / 10.0f;
   c.f2 = priceEuro();
@@ -178,7 +196,9 @@ void showEntry() {
   if (!entryLbl) return;
   char t[24];
   const bool price = st.keypad == Field::Price;
-  if (st.entry[0])
+  if (st.entry[0] && st.keypad == Field::Odo)
+    snprintf(t, sizeof(t), "%s", st.entry);
+  else if (st.entry[0])
     snprintf(t, sizeof(t), "%s%s", st.entry, price ? SYM_NINE_SUP : "");
   else
     snprintf(t, sizeof(t), "%s", fmt::NO_VALUE);
@@ -190,6 +210,11 @@ void onKey(lv_event_t* e) {
   size_t n = strlen(st.entry);
   if (strcmp(k, KEY_BACK) == 0) {
     if (n) st.entry[n - 1] = '\0';
+  } else if (st.keypad == Field::Odo) {
+    if (*k != ',' && n < 7) {  // ganze km, höchstens 9.999.999
+      st.entry[n] = *k;
+      st.entry[n + 1] = '\0';
+    }
   } else if (n + 1 < sizeof(st.entry)) {
     const char* comma = strchr(st.entry, ',');
     if (*k == ',' && comma) return;
@@ -218,7 +243,10 @@ void onTakeOver(lv_event_t*) {
         whole = whole * 10 + (*p - '0');
       }
     }
-    if (st.keypad == Field::Price) {
+    if (st.keypad == Field::Odo) {
+      st.odo = whole;
+      st.odoEdited = true;
+    } else if (st.keypad == Field::Price) {
       while (fracDigits < 2) {
         frac *= 10;
         fracDigits++;
@@ -237,12 +265,12 @@ void onTakeOver(lv_event_t*) {
 }
 
 void buildKeypad() {
-  const bool price = st.keypad == Field::Price;
-  lv_obj_t* t = theme::label(card, &font_m14, false, price ? "Preis pro Liter" : "Getankte Liter");
+  const bool price = st.keypad == Field::Price, odo = st.keypad == Field::Odo;
+  lv_obj_t* t = theme::label(card, &font_m14, false, odo ? "Kilometerstand" : (price ? "Preis pro Liter" : "Getankte Liter"));
   lv_obj_set_pos(t, 12, 8);
   entryLbl = theme::label(card, &font_m28, false, "");
   lv_obj_set_pos(entryLbl, 12, 34);
-  lv_obj_t* u = theme::label(card, &font_m12, true, price ? SYM_EURO "/l" : "l");
+  lv_obj_t* u = theme::label(card, &font_m12, true, odo ? "km (laut Tacho)" : (price ? SYM_EURO "/l" : "l"));
   lv_obj_set_pos(u, 12, 72);
   showEntry();
   static const char* const KEYS[12] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", ",", "0", KEY_BACK};
@@ -319,9 +347,13 @@ void buildMain() {
   lv_obj_align(costRow, LV_ALIGN_TOP_RIGHT, -12, ROW_Y + 2);
 
   const int32_t footY = BOARD_LCD_VER_RES - 2 * INSET - 10 - FOOT_BTN_H;
-  lv_obj_t* no = button(card, 12, footY, 110, FOOT_BTN_H, "Nicht getankt", onCancel, nullptr);
+  lv_obj_t* no = button(card, 12, footY, 96, FOOT_BTN_H, "Nicht getankt", onCancel, nullptr);
   lv_obj_set_style_text_color(lv_obj_get_child(no, 0), theme::c(theme::MUTED), 0);
-  button(card, BOARD_LCD_HOR_RES - 2 * INSET - 12 - 160, footY, 160, FOOT_BTN_H, "OK", onOk, nullptr, true);
+  // Kilometerstand: vorbelegt mit dem berechneten Stand, Tippen zum Bestätigen bzw. Ändern
+  lv_obj_t* ob = button(card, 114, footY, 104, FOOT_BTN_H, "", onDigitTap, reinterpret_cast<void*>(static_cast<intptr_t>(Field::Odo)));
+  odoLbl = lv_obj_get_child(ob, 0);
+  lv_obj_set_style_text_font(odoLbl, &font_m14, 0);
+  button(card, BOARD_LCD_HOR_RES - 2 * INSET - 12 - 72, footY, 72, FOOT_BTN_H, "OK", onOk, nullptr, true);
   refresh();
 }
 
@@ -343,6 +375,8 @@ void open(const CarSnapshot& s, float liters, bool detected) {
   // Vorschlag: letzter Zapfsäulenpreis (A7)
   const float last = s.pumpPrice.get(s.now);
   st.cents = fuel::centsFromPrice(std::isnan(last) ? cfg::PRICE_DEFAULT : last);
+  const float odo = s.odoKm.get(s.now);
+  st.odo = std::isnan(odo) ? -1 : static_cast<int32_t>(std::lround(odo));
   card = overlay::open("", false, INSET);  // bleibt, bis es beantwortet ist
   gen = overlay::generation();
   lv_obj_set_style_border_color(card, theme::c(theme::ACCENT), 0);
