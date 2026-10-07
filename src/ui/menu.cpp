@@ -44,7 +44,7 @@ enum MenuRow {
   M_TILES, M_TIPS, M_COLD, M_SPRINT, M_ENDTRIP, M_INFO,      // rechte Spalte
   M_COUNT
 };
-const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeugart", "Wartung", "Diagnose", "Getankt",
+const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeugart", "Wartung · Abgleich", "Diagnose", "Getankt",
                                         "Kacheln zurücksetzen", "Spartipps", "Kalt-Grenze", "Auto-Sprint", "Fahrt beenden",
                                         "Info"};
 lv_obj_t* menuValues[M_COUNT] = {};
@@ -380,6 +380,35 @@ void maintRow(lv_obj_t* card, const char* key, int which) {
   button(r, "Erledigt", 72, 30, onMaintDone, reinterpret_cast<void*>(static_cast<intptr_t>(which)), true);
 }
 
+// Abgleich (7.10.2026): Verbrauch an den Bordcomputer, Tempo an das Navi
+float speedRawAtOpen = NAN;
+lv_obj_t* calSpeedValue = nullptr;
+char calSpeedShown[32] = "";
+void onCalFuel(lv_event_t*) {
+  numpad::open("Bordcomputer: Ø dieser Fahrt", "l/100 km ohne Komma, 6,4 = 64", NAN, 3,
+               [](float v) {
+                 Command c{CmdType::CalFuel};
+                 c.f = v / 10.0f;
+                 commands::toCalc(c);
+               },
+               maintBack);
+}
+void onCalSpeed(lv_event_t*) {
+  speedRawAtOpen = snap.speed.get(snap.now);  // OBD-Tempo beim Öffnen festhalten
+  if (std::isnan(speedRawAtOpen) || speedRawAtOpen < cfg::SPEED_CAL_MIN_KMH) {
+    speedRawAtOpen = NAN;
+    return;
+  }
+  numpad::open("Navi zeigt gerade", "km/h", NAN, 3,
+               [](float navi) {
+                 if (std::isnan(speedRawAtOpen) || !(navi > 0)) return;
+                 Command c{CmdType::SetSpeedFactor};
+                 c.f = navi / speedRawAtOpen;
+                 commands::toCalc(c);
+               },
+               maintBack);
+}
+
 void openMaintenance() {
   lv_obj_t* card = subDialog("Wartung", Shown::Maintenance);
   lv_obj_t* v = nullptr;
@@ -390,10 +419,18 @@ void openMaintenance() {
   dlgValue[0] = v;
   maintRow(card, "Ölwechsel", 0);
   maintRow(card, "Inspektion", 1);
-  lv_obj_t* note = theme::label(card, &font_small, true,
-                                "Tippen auf Ölwechsel bzw. Inspektion ändert das Intervall. Die km zählt das Display selbst.");
-  lv_obj_set_width(note, LV_PCT(100));
-  lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+  lv_obj_t* f = row(card, "Verbrauch an Bordcomputer", &v, LV_PCT(100));
+  pressable(f);
+  lv_obj_add_event_cb(f, onCalFuel, LV_EVENT_CLICKED, nullptr);
+  lv_obj_set_style_text_color(v, theme::c(theme::ACCENT), 0);
+  dlgValue[3] = v;
+  lv_obj_t* sp = row(card, "Tempo an Navi (ab 30 km/h)", &v, LV_PCT(100));
+  pressable(sp);
+  lv_obj_add_event_cb(sp, onCalSpeed, LV_EVENT_CLICKED, nullptr);
+  lv_obj_set_style_text_color(v, theme::c(theme::ACCENT), 0);
+  calSpeedValue = v;
+  dlgShown[3][0] = '\0';
+  calSpeedShown[0] = '\0';
 }
 
 void maintText(char* out, size_t size, float left, float interval) {
@@ -637,6 +674,18 @@ void update(const CarSnapshot& s) {
         lv_obj_set_style_text_color(dlgValue[1 + i],
                                     theme::c(!std::isnan(left[i]) && left[i] < cfg::MAINT_WARN_KM ? theme::WARN : theme::MUTED), 0);
     }
+    // Abgleich: aktuelle Faktoren
+    char n[16];
+    fmt::number(n, sizeof(n), s.profile.fuelCal, 2);
+    snprintf(text, sizeof(text), "\xC3\x97%s", n);  // ×
+    setText(dlgValue[3], dlgShown[3], sizeof(dlgShown[3]), text);
+    const float v = s.speed.get(s.now);
+    fmt::number(n, sizeof(n), s.profile.kmFactor, 3);
+    if (std::isnan(v) || v < cfg::SPEED_CAL_MIN_KMH)
+      snprintf(text, sizeof(text), "\xC3\x97%s", n);
+    else
+      snprintf(text, sizeof(text), "\xC3\x97%s " "\xC2\xB7" " jetzt", n);
+    setText(calSpeedValue, calSpeedShown, sizeof(calSpeedShown), text);
     return;
   }
   if (!stillOpen(Shown::Diagnose)) {

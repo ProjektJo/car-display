@@ -90,7 +90,10 @@ const char* unit(Key k, const CarSnapshot& s) {
 float value(Key k, const CarSnapshot& s) {
   const uint32_t n = s.now;
   switch (k) {
-    case Key::Speed: return s.speed.get(n);
+    case Key::Speed: {  // mit dem Tempo-Faktor (OBD-Tempo weicht vom echten ab)
+      const float v = s.speed.get(n);
+      return std::isnan(v) ? NAN : v * s.profile.kmFactor;
+    }
     case Key::Rpm: {
       const float r = s.rpm.get(n);
       return std::isnan(r) ? NAN : std::round(r / 10.0f) * 10.0f;  // ruhiger: auf 10 U/min

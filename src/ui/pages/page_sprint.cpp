@@ -18,7 +18,7 @@
 namespace {
 
 // Diagramm
-constexpr int32_t GX0 = 34, GX1 = 310, GY0 = 8, GH = 158;
+constexpr int32_t GX0 = 38, GX1 = 310, GY0 = 10, GH = 144;
 constexpr float G_MIN_TMAX_S = 12.0f;
 constexpr uint32_t DONE_SHOW_MS = 10000;  // Ergebnis 10 s lang im Feld
 // Chips unten
@@ -118,12 +118,12 @@ class SprintPage : public Page {
       lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
       lv_obj_add_event_cb(t, onChip, LV_EVENT_SHORT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(i)));
       lv_obj_t* n = theme::label(t, &font_m12, true, NAMES[i]);
-      lv_obj_align(n, LV_ALIGN_TOP_LEFT, 0, 3);
+      lv_obj_align(n, LV_ALIGN_TOP_LEFT, 0, 2);
       best_[i] = theme::label(t, &font_m12, false, "");
       lv_obj_set_style_text_color(best_[i], theme::c(theme::GOOD), 0);
-      lv_obj_align(best_[i], LV_ALIGN_TOP_RIGHT, 0, 3);
+      lv_obj_align(best_[i], LV_ALIGN_BOTTOM_RIGHT, 0, -5);
       last_[i] = theme::label(t, &font_m20, false, fmt::NO_VALUE);
-      lv_obj_align(last_[i], LV_ALIGN_BOTTOM_MID, 0, -2);
+      lv_obj_align(last_[i], LV_ALIGN_BOTTOM_LEFT, 0, -1);
     }
   }
 
@@ -199,7 +199,7 @@ class SprintPage : public Page {
     } else if (mode == 1) {
       snprintf(t, sizeof(t), "Vollgas aus dem Stand");
     } else if (mode == 0 && !done) {
-      snprintf(t, sizeof(t), "Startet aus dem Stand");
+      t[0] = '\0';  // ohne Hinweis: das Diagramm zeigt die letzte Kurve
     } else {
       t[0] = '\0';
     }
@@ -216,7 +216,7 @@ class SprintPage : public Page {
       } else {
         char n[12];
         secText(n, sizeof(n), bests[i], false);
-        snprintf(t, sizeof(t), "Best %s", n);
+        snprintf(t, sizeof(t), "%s", n);
       }
       setText(best_[i], shownBest_[i], sizeof(shownBest_[i]), t);
     }
@@ -358,7 +358,7 @@ class SprintPage : public Page {
       snprintf(t, sizeof(t), "%d", s);
       text(layer, t, x - 15, py(oy, 0) + 3, 30, LV_TEXT_ALIGN_CENTER, theme::MUTED);
     }
-    text(layer, "km/h", ox, oy + GY0 - 6, GX0 - 3, LV_TEXT_ALIGN_RIGHT, theme::MUTED);
+    text(layer, "km/h", ox, py(oy, 75) - 7, GX0 - 4, LV_TEXT_ALIGN_RIGHT, theme::MUTED);
 
     // Beste grün gestrichelt, letzte in accent, laufende orange und dicker mit Punkt an der Spitze
     drawTrace(layer, sp.bestTrace, ox, oy, tMax, theme::GOOD, 2, true);
@@ -383,8 +383,8 @@ class SprintPage : public Page {
       drawTrace(layer, sp.lastTrace, ox, oy, tMax, sp.state == perf::State::Done ? theme::GOOD : theme::ACCENT, 3, false);
     }
     // Legende rechts unten im Diagramm
-    text(layer, "\xE2\x80\x94 letzte", ox + GX1 - 120, py(oy, 0) - 16, 60, LV_TEXT_ALIGN_RIGHT, theme::ACCENT);
-    text(layer, "- - beste", ox + GX1 - 56, py(oy, 0) - 16, 54, LV_TEXT_ALIGN_RIGHT, theme::GOOD);
+    text(layer, "\xE2\x80\x94 letzte", ox + GX1 - 120, oy + GY0 + 34, 60, LV_TEXT_ALIGN_RIGHT, theme::ACCENT);
+    text(layer, "- - beste", ox + GX1 - 56, oy + GY0 + 34, 54, LV_TEXT_ALIGN_RIGHT, theme::GOOD);
   }
 
   lv_obj_t* graph_ = nullptr;

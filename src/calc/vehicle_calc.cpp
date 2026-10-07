@@ -245,6 +245,28 @@ void VehicleCalc::stepThermo(const CarState& s, uint32_t nowMs, float dtS, bool 
   }
 }
 
+void VehicleCalc::setSpeedFactor(float f) {
+  if (!active_ || !(f >= cfg::SPEED_FACTOR_MIN && f <= cfg::SPEED_FACTOR_MAX)) return;
+  profile_.kmFactor = f;  // vom Fahrer gemessen: gilt sofort ganz
+  profileChanged_ = true;
+}
+
+void VehicleCalc::calibrateToCar(float carL100) {
+  if (!active_ || !st_.trip.active || !(carL100 > 0)) return;
+  const float km = static_cast<float>(st_.trip.km), l = static_cast<float>(st_.trip.liters);
+  if (km < cfg::CAL_CAR_MIN_KM || !(l > 0)) return;
+  const float ours = l / km * 100.0f;
+  float cal = profile_.fuelCal * carL100 / ours;
+  if (cal < cfg::FUEL_CAL_MIN) cal = cfg::FUEL_CAL_MIN;
+  if (cal > cfg::FUEL_CAL_MAX) cal = cfg::FUEL_CAL_MAX;
+  const float ratio = cal / profile_.fuelCal;
+  profile_.fuelCal = cal;
+  profileChanged_ = true;
+  // laufende Fahrt sofort angleichen, damit der Ø gleich passt
+  st_.trip.liters *= ratio;
+  saveNow_ = true;
+}
+
 void VehicleCalc::setKmFactor(float f) {
   if (!active_ || !(f >= cfg::KMF_MIN && f <= cfg::KMF_MAX)) return;
   // halbe Korrektur je Vergleich, dämpft Ausreißer
@@ -467,6 +489,8 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
   in.lambda = s.lambdaCmd.get(nowMs);
   in.fuelSys = s.fuelSys.get(nowMs);
   in.throttlePct = s.throttle.get(nowMs);
+  in.pedalPct = s.pedal.get(nowMs);
+  in.pedalClosedPct = pedalClosed_;
 
   const fuel::Source src = fuel::chooseSource(profile_.fuel, li.pidSupported(0x5E), li.pidSupported(0x10),
                                               li.pidSupported(0x0B), li.pidSupported(0x0C));
@@ -599,7 +623,8 @@ void VehicleCalc::updateOutputs(const CarState& s, uint32_t nowMs, float dtS) {
   }
   if (t > 0) {
     out_.instLph = out_.fuelCut ? 0.0f : l / t;
-    out_.instL100 = speedOk ? fuel::litersPer100(out_.instLph, v / t) : NAN;
+    // Tempo mit dem km-Faktor (GPS bzw. Tempo-Abgleich), wie die Strecke
+    out_.instL100 = speedOk ? fuel::litersPer100(out_.instLph, v / t * profile_.kmFactor) : NAN;
   } else {
     out_.instLph = out_.instL100 = NAN;
   }

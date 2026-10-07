@@ -55,6 +55,16 @@ void test_fuel_cut() {
   TEST_ASSERT_TRUE(fuel::isFuelCut(true, in, NAN));
   in.fuelSys = 2;
   TEST_ASSERT_FALSE(fuel::isFuelCut(true, in, NAN));
+  // 0x03 bekannt, meldet aber nie 4: Pedal losgelassen bei 1800 U/min und 60 km/h = Schub
+  in.pedalPct = 14.5f;
+  in.pedalClosedPct = 14.1f;
+  in.rpm = 1800;
+  in.speedKmh = 60;
+  TEST_ASSERT_TRUE(fuel::isFuelCut(true, in, NAN));
+  in.pedalPct = 25;
+  TEST_ASSERT_FALSE(fuel::isFuelCut(true, in, NAN));  // Gas
+  in.pedalPct = NAN;
+  in.pedalClosedPct = NAN;
   in.throttlePct = 12.5f;
   in.rpm = 1800;
   in.speedKmh = 60;
@@ -91,8 +101,8 @@ void test_calibration_invalid() {
   TEST_ASSERT_FALSE(applied);
   TEST_ASSERT_EQUAL_FLOAT(1.0f, fuel::calibrate(1.0f, 20.0f, 30.0f, 400.0f, applied));  // 0,67
   TEST_ASSERT_FALSE(applied);
-  // Grenzen 0,7–1,3 für fuel_cal
-  TEST_ASSERT_EQUAL_FLOAT(1.3f, fuel::calibrate(1.25f, 38.9f, 30.0f, 400.0f, applied));
+  // Grenzen 0,5–1,5 für fuel_cal (seit dem Abgleich mit dem Bordcomputer)
+  TEST_ASSERT_EQUAL_FLOAT(1.5f, fuel::calibrate(1.45f, 38.9f, 30.0f, 400.0f, applied));
 }
 
 // Rest 28,2 l, 10 l getankt, nicht voll, Tank 49 l -> 38,2 l; vollgetankt: 49 l

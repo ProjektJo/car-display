@@ -36,7 +36,6 @@ constexpr int32_t POINTS = 5;
 constexpr int32_t CURVE_W = 2;
 constexpr int32_t DOT_R = 4, DOT_R_NOW = 5;
 constexpr float TRIP_DOT_MIN_KM = 10.0f; // Fahrt: Punkt und Wert erst ab 10 km, die Linie ab 0,5 km (Jos Wunsch)
-constexpr int32_t TRIP_LABEL_GAP = 30;   // feste Achsen-Beschriftung näher als das: ausblenden
 constexpr int32_t GRID_STEP = 4;      // Raster bei 0, 4, 8, 12 l/100 km
 constexpr lv_opa_t FILL_OPA_TOP = 110;   // Fläche unter der Kurve: oben kräftig, nach unten durchsichtig
 constexpr lv_opa_t REF_OPA = 180;     // Bezugslinie Tank-Schnitt (Vorschau: 0,7)
@@ -132,8 +131,8 @@ class EcoPage : public Page {
 
     font38_ = lv_font_montserrat_38;  // nur ASCII, "–" aus font_m28
     font38_.fallback = &font_m28;
-    lv_obj_t* l = theme::label(parent, &font_m12, true, "Momentanverbrauch");
-    lv_obj_set_pos(l, PAD, 6);
+    title_ = theme::label(parent, &font_m12, true, "Momentanverbrauch");
+    lv_obj_set_pos(title_, PAD, 6);
     bigRow_ = lv_obj_create(parent);
     lv_obj_remove_style_all(bigRow_);
     lv_obj_set_pos(bigRow_, PAD, BIG_TOP);
@@ -149,7 +148,7 @@ class EcoPage : public Page {
     // Gang rechts oben: "Gang" klein links neben der großen Ziffer
     gearRow_ = lv_obj_create(parent);
     lv_obj_remove_style_all(gearRow_);
-    lv_obj_set_size(gearRow_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(gearRow_, 110, LV_SIZE_CONTENT);  // feste Breite: die Ziffer wächst nach links
     lv_obj_align(gearRow_, LV_ALIGN_TOP_RIGHT, -PAD, GEAR_TOP);
     lv_obj_set_flex_flow(gearRow_, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(gearRow_, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
@@ -400,6 +399,8 @@ class EcoPage : public Page {
     const bool vis = pill[0] != '\0';
     if (vis != shownHint_) {
       shownHint_ = vis;
+      if (vis) lv_obj_add_flag(title_, LV_OBJ_FLAG_HIDDEN);  // der Hinweis überdeckt sonst die Überschrift
+      else lv_obj_remove_flag(title_, LV_OBJ_FLAG_HIDDEN);
       if (vis) lv_obj_remove_flag(hint_, LV_OBJ_FLAG_HIDDEN);
       else lv_obj_add_flag(hint_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -508,14 +509,13 @@ class EcoPage : public Page {
       }
     }
 
-    // Achse: Beschriftungen; wo "Fahrt" steht, weicht die feste Beschriftung
+    // Achse: Beschriftungen; "Fahrt" steht oben an der gestrichelten Linie, damit nichts verdeckt wird
     for (int i = 0; i < POINTS; i++) {
       const float x = ox + sx(i);
-      if (!trip || std::fabs(x - tx) >= TRIP_LABEL_GAP)
-        drawText(layer, X_LABELS[i], static_cast<int32_t>(x) - 36, base + 3, 72, LV_TEXT_ALIGN_CENTER, theme::MUTED);
+      drawText(layer, X_LABELS[i], static_cast<int32_t>(x) - 36, base + 3, 72, LV_TEXT_ALIGN_CENTER, theme::MUTED);
     }
     const uint32_t tripCol = c.tripDot ? refColor(c.tripV, c.ref) : theme::MUTED;
-    if (trip) drawText(layer, "Fahrt", static_cast<int32_t>(tx) - 30, base + 3, 60, LV_TEXT_ALIGN_CENTER, tripCol);
+    if (trip) drawText(layer, "Fahrt", static_cast<int32_t>(tx) - 30, oy + CY0 - 15, 60, LV_TEXT_ALIGN_CENTER, tripCol);
 
     // Wert des Fahrt-Punkts auf die andere Seite, wenn ein Nachbarwert schon dort steht
     bool tripAbove = c.tripDot && labelAbove(ty, oy);
@@ -596,6 +596,7 @@ class EcoPage : public Page {
   lv_obj_t* bigRow_ = nullptr;
   lv_obj_t* big_ = nullptr;
   lv_obj_t* unit_ = nullptr;
+  lv_obj_t* title_ = nullptr;
   lv_font_t font38_;
   lv_obj_t* gearRow_ = nullptr;
   lv_obj_t* gear_ = nullptr;

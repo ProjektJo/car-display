@@ -101,6 +101,12 @@ void handleCommands() {
       case CmdType::SetKmFactor:
         vc.setKmFactor(c.f);
         break;
+      case CmdType::CalFuel:
+        vc.calibrateToCar(c.f);
+        break;
+      case CmdType::SetSpeedFactor:
+        vc.setSpeedFactor(c.f);
+        break;
       default:
         break;
     }
@@ -218,6 +224,7 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
     s.hasLastTrip = active && vc.state().hasLastTrip;
     if (s.hasLastTrip) s.lastTrip = vc.state().lastTrip;
     if (active) s.profile.fuelCal = vc.profile().fuelCal;
+    s.profile.kmFactor = active ? vc.profile().kmFactor : 1.0f;
   });
 }
 

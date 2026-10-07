@@ -33,7 +33,7 @@ constexpr int32_t CX = 86, CY = 86, R = 74, ARC_W = 12;
 constexpr int32_t A0 = 150, SWEEP = 240;
 // Balken rechts
 constexpr int32_t BAR_X = 178, BAR_RIGHT = 10;
-constexpr int32_t BAR_TOPS[4] = {2, 32, 62, 92};
+constexpr int32_t BAR_TOPS[4] = {6, 36, 66, 96};
 constexpr int32_t BAR_H = 6;
 // Wettbewerbszeile und Felder
 constexpr int32_t LINE_Y = 132;
@@ -199,7 +199,7 @@ class SportPage : public Page {
     lv_obj_set_style_pad_bottom(gl, 4, 0);
     lv_obj_align(gearRow_, LV_ALIGN_TOP_MID, CX - BOARD_LCD_HOR_RES / 2, CY + 30);
 
-    static const char* const LABELS[4] = {"Leistung", "Beschleunigung", "Gaspedal", "Saugrohrdruck"};
+    static const char* const LABELS[4] = {"Leistung", "Beschl.", "Gaspedal", "Saugrohr"};
     for (int i = 0; i < 4; i++) makeBar(parent, i, LABELS[i], i == 1);
 
     // Wettbewerbszeile
@@ -255,7 +255,7 @@ class SportPage : public Page {
   void update(const CarSnapshot& s) override {
     last_ = s;
     char t[48];
-    fmt::number(t, sizeof(t), s.speed.get(s.now), 0);
+    fmt::number(t, sizeof(t), values::value(values::Key::Speed, s), 0);
     setText(speed_, shownSpeed_, sizeof(shownSpeed_), t);
     values::text(values::Key::Gear, s, t, sizeof(t));
     setText(gear_, shownGear_, sizeof(shownGear_), t);
@@ -268,16 +268,15 @@ class SportPage : public Page {
 
     // Balken
     const float kw = s.powerKw.get(s.now);
-    char a[16], b[16];
+    char a[16];
     fmt::number(a, sizeof(a), kw, 0);
-    fmt::number(b, sizeof(b), std::isnan(kw) ? NAN : kw * cfg::KW_TO_PS, 0);
-    snprintf(t, sizeof(t), std::isnan(kw) ? "%s" : "%s kW " SYM_DOT " %s PS", a, b);
+    snprintf(t, sizeof(t), std::isnan(kw) ? "%s" : "%s kW", a);
     setBar(0, t, std::isnan(kw) ? 0 : kw / (s.profile.powerKw > 0 ? s.profile.powerKw : 55), theme::ACCENT);
     // Mit MPU6050 gemessen und als Längs-G beschriftet (A10)
     const float accRaw = s.imuReady ? s.imuLong.get(s.now) : s.accel.get(s.now);
     if (s.imuReady != shownImu_) {
       shownImu_ = s.imuReady;
-      lv_label_set_text_static(bars_[1].label, s.imuReady ? "Längs-G" : "Beschleunigung");
+      lv_label_set_text_static(bars_[1].label, s.imuReady ? "Längs-G" : "Beschl.");
     }
     // auf 0,1 gerundet, damit kein "–0,0" erscheint
     const float acc = std::isnan(accRaw) ? NAN : std::round(accRaw * 10.0f) / 10.0f + 0.0f;
@@ -371,10 +370,10 @@ class SportPage : public Page {
     b.value = theme::label(parent, &font_m14, false, fmt::NO_VALUE);
     lv_obj_set_width(b.value, w);
     lv_obj_set_style_text_align(b.value, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_pos(b.value, BAR_X, BAR_TOPS[i] + 12);
+    lv_obj_set_pos(b.value, BAR_X, BAR_TOPS[i] - 1);
     b.track = lv_obj_create(parent);
     lv_obj_remove_style_all(b.track);
-    lv_obj_set_pos(b.track, BAR_X, BAR_TOPS[i] + 21);
+    lv_obj_set_pos(b.track, BAR_X, BAR_TOPS[i] + 18);
     lv_obj_set_size(b.track, w, BAR_H);
     lv_obj_set_style_radius(b.track, 3, 0);
     lv_obj_set_style_bg_color(b.track, theme::c(theme::SURFACE), 0);
@@ -383,7 +382,7 @@ class SportPage : public Page {
     if (bipolar) {
       lv_obj_t* mid = lv_obj_create(parent);
       lv_obj_remove_style_all(mid);
-      lv_obj_set_pos(mid, BAR_X + w / 2, BAR_TOPS[i] + 19);
+      lv_obj_set_pos(mid, BAR_X + w / 2, BAR_TOPS[i] + 16);
       lv_obj_set_size(mid, 1, BAR_H + 4);
       lv_obj_set_style_bg_color(mid, theme::c(theme::MUTED), 0);
       lv_obj_set_style_bg_opa(mid, LV_OPA_COVER, 0);
@@ -443,7 +442,7 @@ class SportPage : public Page {
       lv_obj_add_flag(b.mark, LV_OBJ_FLAG_HIDDEN);
     } else {
       lv_obj_remove_flag(b.mark, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_set_pos(b.mark, x, BAR_TOPS[i] + 18);
+      lv_obj_set_pos(b.mark, x, BAR_TOPS[i] + 15);
     }
   }
 

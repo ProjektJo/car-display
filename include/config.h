@@ -159,13 +159,17 @@ constexpr uint8_t FUEL_SYS_DECEL_CUT = 4;
 constexpr float CUT_FALLBACK_MIN_RPM = 1200.0f;
 constexpr float CUT_FALLBACK_MIN_SPEED_KMH = 15.0f;
 constexpr float CUT_THROTTLE_MARGIN_PCT = 1.5f;
+constexpr float CUT_PEDAL_MARGIN_PCT = 2.0f;      // Pedal gilt bis 2 Prozentpunkte über "leer" als losgelassen
 
 // Selbstkalibrierung zwischen zwei Vollbetankungen (A7)
 constexpr float CAL_MIN_KM = 150.0f;
 constexpr float CAL_RATIO_MIN = 0.7f;
 constexpr float CAL_RATIO_MAX = 1.3f;
-constexpr float FUEL_CAL_MIN = 0.7f;
-constexpr float FUEL_CAL_MAX = 1.3f;
+constexpr float FUEL_CAL_MIN = 0.5f;  // 7.10.2026 erweitert: Abgleich mit dem Bordcomputer (Menü)
+constexpr float FUEL_CAL_MAX = 1.5f;
+constexpr float CAL_CAR_MIN_KM = 3.0f;  // Abgleich mit dem Bordcomputer erst ab 3 km Fahrt
+constexpr float SPEED_FACTOR_MIN = 0.85f, SPEED_FACTOR_MAX = 1.15f;  // Tempo-Abgleich mit dem Navi (Menü)
+constexpr float SPEED_CAL_MIN_KMH = 30.0f;
 
 // ---------------------------------------------------------------------------
 // Mittelwerte über Strecke (A7)

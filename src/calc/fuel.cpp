@@ -61,11 +61,17 @@ float rateLph(Source src, const Engine& e, const Input& in) {
 }
 
 bool isFuelCut(bool hasFuelSys, const Input& in, float throttleClosedPct) {
-  if (hasFuelSys) return !std::isnan(in.fuelSys) && static_cast<int>(in.fuelSys) == cfg::FUEL_SYS_DECEL_CUT;
-  if (std::isnan(in.throttlePct) || std::isnan(in.rpm) || std::isnan(in.speedKmh)) return false;
+  if (hasFuelSys && !std::isnan(in.fuelSys) && static_cast<int>(in.fuelSys) == cfg::FUEL_SYS_DECEL_CUT) return true;
+  if (std::isnan(in.rpm) || std::isnan(in.speedKmh)) return false;
+  if (in.rpm <= cfg::CUT_FALLBACK_MIN_RPM || in.speedKmh <= cfg::CUT_FALLBACK_MIN_SPEED_KMH) return false;
+  // Gaspedal losgelassen ist das sicherste Zeichen; ohne Pedal die Drosselklappe
+  if (!std::isnan(in.pedalPct)) {
+    const float closed = std::isnan(in.pedalClosedPct) ? 0.0f : in.pedalClosedPct;
+    return in.pedalPct <= closed + cfg::CUT_PEDAL_MARGIN_PCT;
+  }
+  if (std::isnan(in.throttlePct)) return false;
   const float closed = std::isnan(throttleClosedPct) ? 0.0f : throttleClosedPct;
-  return in.throttlePct <= closed + cfg::CUT_THROTTLE_MARGIN_PCT && in.rpm > cfg::CUT_FALLBACK_MIN_RPM &&
-         in.speedKmh > cfg::CUT_FALLBACK_MIN_SPEED_KMH;
+  return in.throttlePct <= closed + cfg::CUT_THROTTLE_MARGIN_PCT;
 }
 
 float litersPer100(float lph, float speedKmh) {

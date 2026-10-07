@@ -87,6 +87,7 @@ struct ProfileInfo {
   uint8_t body = 0;            // Fahrzeugart (Index in cfg::BODY_TYPES)
   bool diesel = false;
   float fuelCal = NAN;
+  float kmFactor = 1.0f;       // Tempo und Strecke: echt = OBD · Faktor (GPS bzw. Tempo-Abgleich)
   float tankL = NAN;
   uint16_t coldRpmLimit = cfg::DEFAULT_COLD_RPM_LIMIT;  // Kalter Motor (A9)
   uint8_t coldCoolantC = cfg::DEFAULT_COLD_COOLANT_C;
