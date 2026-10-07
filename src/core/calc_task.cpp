@@ -101,12 +101,7 @@ void handleCommands() {
       case CmdType::SetKmFactor:
         vc.setKmFactor(c.f);
         break;
-      case CmdType::CalFuel:
-        vc.calibrateToCar(c.f);
-        break;
-      case CmdType::SetSpeedFactor:
-        vc.setSpeedFactor(c.f);
-        break;
+
       default:
         break;
     }
@@ -200,6 +195,15 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
     put(s.tripKwPeak, o.tripKwPeak);
     {
       const perf::SprintMeter& m = vc.sprint();
+      // Diagnose: Zustandswechsel der Sprintmessung seriell melden
+      static perf::State lastState = perf::State::Ready;
+      if (m.state() != lastState) {
+        static const char* const N[] = {"bereit", "Live", "Sprint läuft", "Ziel"};
+        static const char* const R[] = {"", " (Tempo gefallen)", " (über 30 s)", " (zu schwach beschleunigt)"};
+        const bool aborted = m.state() == perf::State::Ready && (lastState == perf::State::Running || lastState == perf::State::Waiting);
+        Serial.printf("Sprint: %s%s\n", N[static_cast<int>(m.state())], aborted ? R[m.abortReason() < 4 ? m.abortReason() : 0] : "");
+        lastState = m.state();
+      }
       SprintInfo& si = s.sprint;
       si.state = active ? m.state() : perf::State::Ready;
       si.active = active && m.active();

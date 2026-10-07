@@ -20,8 +20,6 @@ enum class CmdType : uint8_t {
   ResetAvg,     // an calcTask: Mittelwerte zurücksetzen, i = Bitmaske (1 km, 10 km, 100 km, Tank)
   SetKmFactor,  // an calcTask: km-Faktor aus dem GPS-Vergleich, f = Faktor
   ImuRelearn,   // an sensorTask: Einbaulage neu einlernen
-  CalFuel,      // an calcTask: Bordcomputer zeigt f l/100 km als Ø dieser Fahrt -> fuel_cal angleichen
-  SetSpeedFactor, // an calcTask: Tempo-Faktor (Navi ÷ OBD), f = Faktor
   // Weitere Befehle folgen mit den Etappen (Fehlercodes lesen/löschen ...)
 };
 

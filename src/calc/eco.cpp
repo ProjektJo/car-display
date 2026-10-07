@@ -309,9 +309,14 @@ Tip TipEngine::update(const TipInput& in) {
     stCount_ = 0;
   }
 
-  // Aktiver Tipp: weg nach 8 s, wenn der Anlass vorbei ist, bei Schub oder ohne Motor
+  // Aktiver Tipp: weg nach 20 s bzw. ab 10 s, wenn der Anlass vorbei ist, bei Schub oder ohne Motor
   if (active_ != Tip::None && active_ != Tip::Cold) {
-    if (now - shownAt_ >= cfg::TIP_SHOW_MS || gone(active_, in) || in.fuelCut || !in.engineOn) active_ = Tip::None;
+    // Tipps stehen länger (fester Platz, Jos Wunsch): Fahrtipps mindestens TIP_MIN_SHOW_MS, auch wenn der Anlass
+    // vorbei ist. "Gang rein" und "Langer Stand" gehen sofort, wenn der Gang drin ist bzw. das Auto fährt.
+    const bool sticky = active_ != Tip::Coast && active_ != Tip::Idle;
+    if (now - shownAt_ >= cfg::TIP_SHOW_MS || ((!sticky || now - shownAt_ >= cfg::TIP_MIN_SHOW_MS) && gone(active_, in)) ||
+        in.fuelCut || !in.engineOn)
+      active_ = Tip::None;
   }
   if (active_ == Tip::Cold) active_ = Tip::None;  // wird unten neu bewertet
 

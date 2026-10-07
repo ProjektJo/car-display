@@ -179,7 +179,7 @@ void test_tip_coast() {
   }
 }
 
-// Langer Stand: nach 60 s, 8 s sichtbar, alle 30 s wieder, weg beim Losfahren; nie im Schub
+// Langer Stand: nach 60 s, 20 s sichtbar, alle 30 s wieder, weg beim Losfahren; nie im Schub
 void test_tip_idle() {
   eco::TipEngine e;
   eco::TipInput in = driving(1000);
@@ -194,7 +194,7 @@ void test_tip_idle() {
   in.nowMs = t + 100;
   TEST_ASSERT_EQUAL_INT((int)eco::Tip::Idle, (int)e.update(in));
   TEST_ASSERT_UINT32_WITHIN(200, 60000, e.standMs(in.nowMs));
-  in.nowMs = t + 8200;  // nach 8 s weg
+  in.nowMs = t + 20200;  // nach 20 s weg
   TEST_ASSERT_EQUAL_INT((int)eco::Tip::None, (int)e.update(in));
   in.nowMs = t + 30200;  // nach 30 s wieder
   TEST_ASSERT_EQUAL_INT((int)eco::Tip::Idle, (int)e.update(in));
@@ -242,11 +242,11 @@ void test_tip_gaps() {
     got = e.update(in);
   }
   TEST_ASSERT_EQUAL_INT((int)eco::Tip::HardPedal, (int)got);
-  // weiter Vollgas: nach 8 s weg, dann 5 min nicht wieder
+  // weiter Vollgas: nach 20 s weg, dann 5 min nicht wieder
   for (; t < 200000; t += 100) {
     in.nowMs = t;
     got = e.update(in);
-    if (t > 12000) TEST_ASSERT_EQUAL_INT((int)eco::Tip::None, (int)got);
+    if (t > 25000) TEST_ASSERT_EQUAL_INT((int)eco::Tip::None, (int)got);
   }
   // Fenster offen bzw. gerade getippt: nichts Neues
   eco::TipEngine q;

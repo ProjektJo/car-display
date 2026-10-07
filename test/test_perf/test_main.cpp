@@ -176,9 +176,12 @@ void test_auto_sprint_low_and_max() {
   for (; t < 3000; t += 100) a.update(t, true, 1, State::Running, 0, 98, false);
   perf::AutoSprint::Action r = perf::AutoSprint::Action::None;
   const uint32_t lift = t;
-  for (; t < lift + 2100 && r == perf::AutoSprint::Action::None; t += 100) r = a.update(t, true, 1, State::Running, 0, 20, false);
+  // Rohpedal unter 50 %, die Messung läuft aber noch: kein Rücksprung (manche Autos melden Vollgas unter 50 %)
+  for (; t < lift + 3000 && r == perf::AutoSprint::Action::None; t += 100) r = a.update(t, true, 1, State::Running, 0, 20, false);
+  TEST_ASSERT_EQUAL_INT((int)perf::AutoSprint::Action::None, (int)r);
+  // Messung vorbei: zurück
+  r = a.update(t, true, 1, State::Ready, 0, 20, false);
   TEST_ASSERT_EQUAL_INT((int)perf::AutoSprint::Action::Return, (int)r);
-  TEST_ASSERT_UINT32_WITHIN(150, lift + 2000, t - 100);
 
   perf::AutoSprint b;
   t = 1000;

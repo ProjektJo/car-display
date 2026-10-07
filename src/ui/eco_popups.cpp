@@ -22,7 +22,7 @@ constexpr int32_t COLS = 4;
 constexpr int32_t CHECK_X = 20, CHECK_Y = 50;
 constexpr int32_t BTN_H = 30, BTN_GAP = 8;
 
-enum class Shown : uint8_t { None, StartCard, GearCheck };
+enum class Shown : uint8_t { None, StartCard, GearCheck, Range };
 Shown shown = Shown::None;
 uint32_t shownGen = 0;
 uint32_t openedAt = 0;
@@ -210,10 +210,65 @@ void openGearCheck(const CarSnapshot& s) {
   button(row, "Fahrzeug ändern", onCheckChange, false);
 }
 
+
+// ---------- Reichweiten-Warnung (7.10.2026, Jos Wunsch "auffällig und realistisch") ----------
+// Die Reichweite rechnet mit dem Prognose-Verbrauch (Ø 100 km, Ø 10 km, letzte Tankfüllungen), also mit der
+// tatsächlichen Fahrweise. Unter 50 km und unter 20 km erscheint je einmal ein großes Fenster; wieder scharf erst
+// nach dem Tanken (Reichweite wieder deutlich höher).
+int rangeStage = 0;  // 0 nichts, 1 unter 50 km gewarnt, 2 unter 20 km gewarnt
+
+void openRangeWarn(float km, bool urgent) {
+  lv_obj_t* card = overlay::open("");
+  shown = Shown::Range;
+  shownGen = overlay::generation();
+  openedAt = 0;
+  lv_obj_t* dim = lv_obj_get_parent(card);
+  lv_obj_add_event_cb(dim, onClose, LV_EVENT_CLICKED, nullptr);
+  lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(card, onClose, LV_EVENT_CLICKED, nullptr);
+  const uint32_t col = urgent ? theme::BAD : theme::WARN;
+  lv_obj_set_style_border_color(card, theme::c(col), 0);
+  lv_obj_set_style_border_width(card, 3, 0);
+  lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_t* row = lv_obj_create(card);
+  lv_obj_remove_style_all(row);
+  lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+  lv_obj_set_style_pad_column(row, 10, 0);
+  lv_obj_t* icon = theme::label(row, &font_m20, false, SYM_PUMP);  // Symbole gibt es nur in font_m20
+  lv_obj_set_style_text_color(icon, theme::c(col), 0);
+  lv_obj_set_style_pad_bottom(icon, 6, 0);
+  char n[16];
+  fmt::number(n, sizeof(n), km, 0);
+  lv_obj_t* v = theme::label(row, &font_m48, false, n);
+  lv_obj_set_style_text_color(v, theme::c(col), 0);
+  lv_obj_t* u = theme::label(row, &font_m20, true, "km");
+  lv_obj_set_style_pad_bottom(u, 10, 0);
+  lv_obj_t* t = theme::label(card, &font_m20, false, urgent ? "Sofort tanken!" : "Reichweite niedrig");
+  lv_obj_set_style_text_color(t, theme::c(col), 0);
+  theme::label(card, &font_m14, true, urgent ? "Nächste Tankstelle anfahren" : "Bald tanken");
+}
+
+void updateRange(const CarSnapshot& s) {
+  const float r = s.rangeKm.get(s.now);
+  if (std::isnan(r)) return;
+  if (r > cfg::RANGE_LOW_KM + cfg::RANGE_REARM_KM) rangeStage = 0;  // getankt
+  const int want = r < cfg::RANGE_CRIT_KM ? 2 : (r < cfg::RANGE_LOW_KM ? 1 : 0);
+  if (want > rangeStage && !overlay::isOpen() && s.engineRunning()) {
+    rangeStage = want;
+    openedAt = s.now;
+    openRangeWarn(r, want == 2);
+    openedAt = s.now ? s.now : 1;
+  }
+  if (stillOpen(Shown::Range) && openedAt && s.now - openedAt >= cfg::RANGE_WARN_SHOW_MS) overlay::close();
+}
+
 }  // namespace
 
 void update(const CarSnapshot& s, bool ready) {
   if (!ready) return;
+  updateRange(s);
 
   // Start-Karte: einmal nach dem Start, wenn die letzte Fahrt mindestens 1 km lang war
   if (!startCardDone && s.profile.id && !s.profile.asking) {

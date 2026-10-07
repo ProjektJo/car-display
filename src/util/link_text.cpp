@@ -70,6 +70,7 @@ const char* fuelSource(const LinkInfo& li, bool diesel) {
   if (li.pidSupported(0x5E)) return "Kraftstoffrate (5E)";
   if (diesel) return "nicht verfügbar";  // Luftmenge sagt beim mager laufenden Diesel nichts (A7)
   if (li.pidSupported(0x10)) return "Luftmasse (MAF)";
+  if (li.pidSupported(0x43) && li.pidSupported(0x0C)) return "Absolute Last (43)";
   if (li.pidSupported(0x0B) && li.pidSupported(0x0C)) return "Saugrohrdruck";
   return "nicht verfügbar";
 }

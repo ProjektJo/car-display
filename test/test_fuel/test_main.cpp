@@ -43,6 +43,10 @@ void test_source_order() {
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Petrol, true, true, true, true) == Source::FuelRate);
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Petrol, false, true, true, true) == Source::Maf);
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Petrol, false, false, true, true) == Source::SpeedDensity);
+  TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Petrol, false, false, true, true, true) == Source::AbsLoad);
+  TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Petrol, false, true, true, true, true) == Source::Maf);
+  // 1,4 l, 2000 U/min, absolute Last 50 %: 0,5 · 1,184 · 1,4 · 2000/120 = 13,8 g/s Luft
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 13.81f, fuel::absLoadAirGs(50, 1.4f, 2000));
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Petrol, false, false, false, true) == Source::None);
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Diesel, false, true, true, true) == Source::None);
   TEST_ASSERT_TRUE(fuel::chooseSource(FuelType::Diesel, true, true, true, true) == Source::FuelRate);
@@ -101,8 +105,8 @@ void test_calibration_invalid() {
   TEST_ASSERT_FALSE(applied);
   TEST_ASSERT_EQUAL_FLOAT(1.0f, fuel::calibrate(1.0f, 20.0f, 30.0f, 400.0f, applied));  // 0,67
   TEST_ASSERT_FALSE(applied);
-  // Grenzen 0,5–1,5 für fuel_cal (seit dem Abgleich mit dem Bordcomputer)
-  TEST_ASSERT_EQUAL_FLOAT(1.5f, fuel::calibrate(1.45f, 38.9f, 30.0f, 400.0f, applied));
+  // Grenzen 0,7–1,3 für fuel_cal
+  TEST_ASSERT_EQUAL_FLOAT(1.3f, fuel::calibrate(1.25f, 38.9f, 30.0f, 400.0f, applied));
 }
 
 // Rest 28,2 l, 10 l getankt, nicht voll, Tank 49 l -> 38,2 l; vollgetankt: 49 l

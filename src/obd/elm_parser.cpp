@@ -130,7 +130,7 @@ int pidDataLen(uint8_t pid) {
     case 0x00: case 0x20: case 0x40: case 0x60: case 0x80: case 0xA0: case 0xC0: case 0xE0:
     case 0x01:
       return 4;
-    case 0x03: case 0x0C: case 0x10: case 0x1F: case 0x21: case 0x31: case 0x42: case 0x44: case 0x5E:
+    case 0x03: case 0x0C: case 0x10: case 0x1F: case 0x21: case 0x31: case 0x42: case 0x43: case 0x44: case 0x5E:
       return 2;
     case 0x04: case 0x05: case 0x06: case 0x07: case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0D:
     case 0x0E: case 0x0F: case 0x11: case 0x2F: case 0x33: case 0x45: case 0x46: case 0x47: case 0x49:
@@ -183,6 +183,9 @@ bool decodePid(uint8_t pid, const uint8_t* d, PidValue& out) {
       return true;
     case 0x42:
       out.value = (a * 256.0f + b) / 1000.0f;  // Steuergerät-Spannung V
+      return true;
+    case 0x43:
+      out.value = (a * 256.0f + b) * 100.0f / 255.0f;  // absolute Last % (Luft je Hub, normiert)
       return true;
     case 0x44:
       out.value = (a * 256.0f + b) * 2.0f / 65536.0f;  // Soll-Lambda

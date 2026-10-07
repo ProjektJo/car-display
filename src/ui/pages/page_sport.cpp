@@ -47,6 +47,7 @@ constexpr float ACC_SHOW_MS2 = 1.0f;        // Beschleunigungs-Urteil ab 1 m/s²
 constexpr uint32_t TREND_SAMPLE_MS = 10000; // Schnitt alle 10 s merken ...
 constexpr int TREND_SAMPLES = 13;           // ... 13 Proben = 2 min zurück
 constexpr float TREND_MIN_KMH = 0.5f;       // kleiner: neutral
+constexpr float TREND_MIN_TRIP_S = 300.0f;  // erst nach 5 min Fahrt (vorher schwankt der Schnitt zu stark)
 
 // Serienpaare (A10): Tempo + Leistung, Drehzahl + Gas, Beschleunigung + Leistung
 constexpr Ser PAIRS[3][2] = {{Ser::Speed, Ser::Kw}, {Ser::Rpm, Ser::Pedal}, {Ser::Acc, Ser::Kw}};
@@ -342,7 +343,7 @@ class SportPage : public Page {
       // Zeit gewonnen: Strecke der letzten 2 min mit dem Fahrtschnitt von davor gefahren hätte so lange gedauert
       const int iNow = (trendHead_ + TREND_SAMPLES - 1) % TREND_SAMPLES, iThen = trendHead_;
       const float km1 = trendKm_[iNow], d1 = trendDur_[iNow], km0 = trendKm_[iThen], d0 = trendDur_[iThen];
-      if (!std::isnan(km1) && !std::isnan(d1) && !std::isnan(km0) && !std::isnan(d0) && d0 > 60 && km0 > 0.2f && d1 > d0) {
+      if (!std::isnan(km1) && !std::isnan(d1) && !std::isnan(km0) && !std::isnan(d0) && d0 > TREND_MIN_TRIP_S && km0 > 0.2f && d1 > d0) {
         const float avgOld = km0 / (d0 / 3600.0f), avgNow = km1 / (d1 / 3600.0f);
         const float gained = (km1 - km0) / avgOld * 3600.0f - (d1 - d0);
         const float dv = avgNow - avgOld;

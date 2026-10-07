@@ -49,3 +49,18 @@ Neu:
 - Sport: statt des km/h-Trends „Zeit gewonnen“: Die Strecke der letzten 2 min, mit dem Fahrtschnitt von
   davor gefahren, hätte so viel länger gedauert („12 s gewonnen · Ø +3,0 km/h“).
 - Eco: Momentanverbrauch wieder 38 px mit Überschrift (gut lesbar), Felder 24 px.
+
+## Nachtrag 2 (7.10.2026 Nachmittag)
+- Verbrauch ohne Zuschnitt auf ein Auto: Quellen in der Reihenfolge Kraftstoffrate (0x5E), Luftmasse (0x10),
+  **absolute Last (0x43)** (Luft je Hub vom Steuergerät, `fuel::absLoadAirGs`), erst dann Speed-Density mit
+  geschätztem Füllgrad. Die jeweilige Quelle wird schnell abgefragt. Kein manueller Abgleich.
+- Schub: auch ohne 0x03 = 4, wenn das Gaspedal losgelassen ist (> 1200 U/min, > 15 km/h).
+- Tempo: Anzeige = OBD-Wert, mit GPS-Fix das GPS-Tempo. Strecke und l/100 rechnen mit dem per GPS gelernten km-Faktor.
+- Reichweite: unter 50 km bernstein mit km in der Statusleiste und Warnfenster, unter 20 km rot blinkend und
+  zweites Fenster „Sofort tanken!“. Wieder scharf nach dem Tanken.
+- Tipps: bis 20 s, Fahrtipps mindestens 10 s.
+- Menü: eine scrollbare Liste großer Zeilen mit Symbolen, Häufiges oben, „Selten“ darunter; Schalter AN/AUS.
+- Sprint: Bestzeit fein gestrichelt, GO-Feld links unter der Zeit (verdeckt die Kurve nicht).
+  Auto-Sprint springt nicht mehr zurück, solange die Messung läuft (Rohpedal lag unter 50 %).
+  Abbruch bei weniger als 0,4 m/s² über 3 s. Serielle Diagnose „Sprint: …“ mit Abbruchgrund.
+- Eco: Wert des Fahrt-Punkts wird so platziert, dass er keinen festen Wert oder Punkt überdeckt.

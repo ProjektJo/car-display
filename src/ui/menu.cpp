@@ -26,7 +26,7 @@ namespace menu {
 namespace {
 
 // Maße aus der Vorschau (.mrow, Menü zweispaltig mit 12 px Abstand)
-constexpr int32_t ROW_PAD_VER = 4;
+constexpr int32_t ROW_PAD_VER = 9;   // 7.10.2026 größer (vorher 4)
 constexpr int32_t ROW_PAD_HOR = 2;
 constexpr int32_t COL_GAP = 8;
 constexpr int32_t DIAG_VALUE_W = 172;  // rechte Spalte im Diagnose-Dialog, längere Texte brechen um
@@ -44,9 +44,19 @@ enum MenuRow {
   M_TILES, M_TIPS, M_COLD, M_SPRINT, M_ENDTRIP, M_INFO,      // rechte Spalte
   M_COUNT
 };
-const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeugart", "Wartung · Abgleich", "Diagnose", "Getankt",
+const char* const MENU_KEYS[M_COUNT] = {"Helligkeit", "Spar-Ziel", "Fahrzeugart", "Wartung", "Diagnose", "Getankt",
                                         "Kacheln zurücksetzen", "Spartipps", "Kalt-Grenze", "Auto-Sprint", "Fahrt beenden",
                                         "Info"};
+// Reihenfolge im Menü: oben häufig, unten selten (Jos Wunsch)
+constexpr int MENU_ORDER[M_COUNT] = {M_BRIGHT, M_REFUEL, M_TIPS, M_SPRINT, M_ENDTRIP, M_GOAL,
+                                     M_MAINT, M_DIAG, M_COLD, M_BODY, M_TILES, M_INFO};
+constexpr int FREQUENT_COUNT = 6;
+constexpr int32_t MENU_ROW_H = 44;
+// Symbole: LVGL-Symbole aus Montserrat 24, Zapfsäule/Tropfen/Thermometer aus font_m20 (Ersatzschrift)
+const char* const MENU_ICONS[M_COUNT] = {LV_SYMBOL_EYE_OPEN, SYM_DROP, LV_SYMBOL_EDIT, LV_SYMBOL_SETTINGS, LV_SYMBOL_LIST,
+                                         SYM_PUMP, LV_SYMBOL_REFRESH, LV_SYMBOL_BELL, SYM_THERMO, LV_SYMBOL_CHARGE,
+                                         LV_SYMBOL_STOP, LV_SYMBOL_FILE};
+lv_obj_t* menuPills[M_COUNT] = {};
 lv_obj_t* menuValues[M_COUNT] = {};
 char menuShown[M_COUNT][32] = {};
 
@@ -65,6 +75,14 @@ void setText(lv_obj_t* l, char* shownText, size_t size, const char* text) {
   if (!l || strcmp(shownText, text) == 0) return;
   snprintf(shownText, size, "%s", text);
   lv_label_set_text(l, text);
+}
+
+// Schalter im Menü: grünes Feld AN, graues AUS
+void setToggle(int r, bool on) {
+  if (strcmp(menuShown[r], on ? "AN" : "AUS") == 0) return;
+  setText(menuValues[r], menuShown[r], sizeof(menuShown[0]), on ? "AN" : "AUS");
+  if (menuPills[r]) lv_obj_set_style_bg_color(menuPills[r], theme::c(on ? theme::GOOD : theme::LINE), 0);
+  lv_obj_set_style_text_color(menuValues[r], theme::c(on ? theme::BG : theme::MUTED), 0);
 }
 
 void pressable(lv_obj_t* o) {
@@ -87,9 +105,8 @@ lv_obj_t* row(lv_obj_t* parent, const char* key, lv_obj_t** valueOut, int32_t wi
   lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(r, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
-  theme::label(r, &font_m12, false, key);
-  *valueOut = theme::label(r, &font_small, true, "");
-  lv_obj_set_style_pad_top(*valueOut, 2, 0);
+  theme::label(r, &font_m14, false, key);
+  *valueOut = theme::label(r, &font_m14, true, "");
   return r;
 }
 
@@ -106,7 +123,7 @@ lv_obj_t* button(lv_obj_t* parent, const char* text, int32_t w, int32_t h, lv_ev
   lv_obj_set_style_border_color(b, theme::c(accent ? theme::ACCENT : theme::LINE), 0);
   lv_obj_set_style_border_width(b, 1, 0);
   lv_obj_set_style_radius(b, theme::RADIUS_TILE, 0);
-  lv_obj_t* l = theme::label(b, &font_m12, false, text);
+  lv_obj_t* l = theme::label(b, &font_m14, false, text);
   if (accent) lv_obj_set_style_text_color(l, theme::c(theme::ACCENT), 0);
   lv_obj_center(l);
   if (cb) {
@@ -119,14 +136,14 @@ lv_obj_t* button(lv_obj_t* parent, const char* text, int32_t w, int32_t h, lv_ev
 lv_obj_t* chip(lv_obj_t* parent, const char* text, bool on, bool enabled, lv_event_cb_t cb, intptr_t user) {
   lv_obj_t* c = lv_obj_create(parent);
   lv_obj_remove_style_all(c);
-  lv_obj_set_size(c, LV_SIZE_CONTENT, 22);
-  lv_obj_set_style_radius(c, 11, 0);
+  lv_obj_set_size(c, LV_SIZE_CONTENT, 32);
+  lv_obj_set_style_radius(c, 16, 0);
   lv_obj_set_style_border_width(c, 1, 0);
   lv_obj_set_style_border_color(c, theme::c(on ? theme::ACCENT : theme::LINE), 0);
   lv_obj_set_style_bg_color(c, theme::c(on ? theme::ACCENT : theme::SURFACE), 0);
   lv_obj_set_style_bg_opa(c, LV_OPA_COVER, 0);
-  lv_obj_set_style_pad_hor(c, 10, 0);
-  lv_obj_t* l = theme::label(c, &font_m12, false, text);
+  lv_obj_set_style_pad_hor(c, 14, 0);
+  lv_obj_t* l = theme::label(c, &font_m14, false, text);
   lv_obj_set_style_text_color(l, theme::c(on ? theme::BG : (enabled ? theme::TEXT : theme::MUTED)), 0);
   lv_obj_center(l);
   if (enabled) {
@@ -154,6 +171,9 @@ lv_obj_t* subDialog(const char* title, Shown what) {
   shownGen = overlay::generation();
   overlay::addDoneButton(card, [](lv_event_t*) { open(); });
   lv_obj_set_style_pad_row(card, 8, 0);
+  lv_obj_add_flag(card, LV_OBJ_FLAG_SCROLLABLE);  // längere Dialoge: wischen
+  lv_obj_set_scroll_dir(card, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(card, LV_SCROLLBAR_MODE_ACTIVE);
   memset(dlgShown, 0, sizeof(dlgShown));
   for (auto& v : dlgValue) v = nullptr;
   return card;
@@ -241,7 +261,7 @@ void openBrightness() {
     lv_label_set_text(v, u.flip180 ? "an" : "aus");
     lv_obj_set_style_text_color(v, theme::c(theme::ACCENT), 0);
   }
-  lv_obj_t* note = theme::label(card, &font_small, true,
+  lv_obj_t* note = theme::label(card, &font_m12, true,
                                 snap.hasGps ? "Auto wechselt mit dem Sonnenstand am aktuellen Ort."
                                             : "Auto (Sonnenstand) gibt es nur mit GPS-Modul.");
   lv_obj_set_width(note, LV_PCT(100));
@@ -325,7 +345,7 @@ void openBody() {
     lv_label_set_text(v, m);
     if (i == snap.profile.body) lv_obj_set_style_text_color(lv_obj_get_child(r, 0), theme::c(theme::ACCENT), 0);
   }
-  lv_obj_t* note = theme::label(card, &font_small, true,
+  lv_obj_t* note = theme::label(card, &font_m12, true,
                                 "Gewicht mit Fahrer und Luftwiderstand für Leistung, Bremsenergie und Eco-Score.");
   lv_obj_set_width(note, LV_PCT(100));
   lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
@@ -380,35 +400,6 @@ void maintRow(lv_obj_t* card, const char* key, int which) {
   button(r, "Erledigt", 72, 30, onMaintDone, reinterpret_cast<void*>(static_cast<intptr_t>(which)), true);
 }
 
-// Abgleich (7.10.2026): Verbrauch an den Bordcomputer, Tempo an das Navi
-float speedRawAtOpen = NAN;
-lv_obj_t* calSpeedValue = nullptr;
-char calSpeedShown[32] = "";
-void onCalFuel(lv_event_t*) {
-  numpad::open("Bordcomputer: Ø dieser Fahrt", "l/100 km ohne Komma, 6,4 = 64", NAN, 3,
-               [](float v) {
-                 Command c{CmdType::CalFuel};
-                 c.f = v / 10.0f;
-                 commands::toCalc(c);
-               },
-               maintBack);
-}
-void onCalSpeed(lv_event_t*) {
-  speedRawAtOpen = snap.speed.get(snap.now);  // OBD-Tempo beim Öffnen festhalten
-  if (std::isnan(speedRawAtOpen) || speedRawAtOpen < cfg::SPEED_CAL_MIN_KMH) {
-    speedRawAtOpen = NAN;
-    return;
-  }
-  numpad::open("Navi zeigt gerade", "km/h", NAN, 3,
-               [](float navi) {
-                 if (std::isnan(speedRawAtOpen) || !(navi > 0)) return;
-                 Command c{CmdType::SetSpeedFactor};
-                 c.f = navi / speedRawAtOpen;
-                 commands::toCalc(c);
-               },
-               maintBack);
-}
-
 void openMaintenance() {
   lv_obj_t* card = subDialog("Wartung", Shown::Maintenance);
   lv_obj_t* v = nullptr;
@@ -419,18 +410,6 @@ void openMaintenance() {
   dlgValue[0] = v;
   maintRow(card, "Ölwechsel", 0);
   maintRow(card, "Inspektion", 1);
-  lv_obj_t* f = row(card, "Verbrauch an Bordcomputer", &v, LV_PCT(100));
-  pressable(f);
-  lv_obj_add_event_cb(f, onCalFuel, LV_EVENT_CLICKED, nullptr);
-  lv_obj_set_style_text_color(v, theme::c(theme::ACCENT), 0);
-  dlgValue[3] = v;
-  lv_obj_t* sp = row(card, "Tempo an Navi (ab 30 km/h)", &v, LV_PCT(100));
-  pressable(sp);
-  lv_obj_add_event_cb(sp, onCalSpeed, LV_EVENT_CLICKED, nullptr);
-  lv_obj_set_style_text_color(v, theme::c(theme::ACCENT), 0);
-  calSpeedValue = v;
-  dlgShown[3][0] = '\0';
-  calSpeedShown[0] = '\0';
 }
 
 void maintText(char* out, size_t size, float left, float interval) {
@@ -464,7 +443,7 @@ void openResetAvg() {
   static const char* const NAMES[] = {SYM_AVG " 1 km", SYM_AVG " 10 km", SYM_AVG " 100 km", SYM_AVG " Tank", "Alle"};
   static const intptr_t MASKS[] = {1, 2, 4, 8, 15};
   for (int i = 0; i < 5; i++) button(r, NAMES[i], 84, 32, onResetAvg, reinterpret_cast<void*>(MASKS[i]));
-  lv_obj_t* note = theme::label(card, &font_small, true,
+  lv_obj_t* note = theme::label(card, &font_m12, true,
                                 "Setzt nur den gewählten Schnitt auf null. Fahrten, Tankfüllungen und Kalibrierung bleiben.");
   lv_obj_set_width(note, LV_PCT(100));
   lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
@@ -528,32 +507,63 @@ void onExportRow(lv_event_t*) { storage::requestExport(); }
 
 }  // namespace
 
+// Hauptmenü (7.10.2026 neu, Jos Wunsch): große Zeilen mit Symbol, eine scrollbare Liste, oben das Häufige,
+// unten das Seltene. Schalter (Spartipps, Auto-Sprint) zeigen AN/AUS als Feld rechts.
 void open() {
-  lv_obj_t* card = overlay::open("Menü");
+  lv_obj_t* card = overlay::open("Menü", true, theme::DIALOG_INSET_SUB);
   shown = Shown::Menu;
   shownGen = overlay::generation();
-  lv_obj_set_style_pad_hor(card, 6, 0);  // zwei Spalten brauchen die Breite
   overlay::addDoneButton(card, onDone);
   memset(menuShown, 0, sizeof(menuShown));
+  lv_obj_set_style_pad_row(card, 0, 0);
 
-  // Zweispaltig wie in der Vorschau
-  lv_obj_t* grid = lv_obj_create(card);
-  lv_obj_remove_style_all(grid);
-  lv_obj_set_width(grid, LV_PCT(100));
-  lv_obj_set_height(grid, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_COLUMN_WRAP);
-  lv_obj_set_style_pad_column(grid, COL_GAP, 0);
-  lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_update_layout(card);
-  const int32_t colW = (lv_obj_get_content_width(card) - COL_GAP) / 2;
-  // Spalten nebeneinander: links die ersten sechs Zeilen, rechts die übrigen
-  lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
-  for (int i = 0; i < M_COUNT / 2; i++) {
-    for (int col = 0; col < 2; col++) {
-      const int r = col * (M_COUNT / 2) + i;
-      lv_obj_t* rr = row(grid, MENU_KEYS[r], &menuValues[r], colW);
-      pressable(rr);
-      lv_obj_add_event_cb(rr, onMenuRow, LV_EVENT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(r)));
+  lv_obj_t* list = lv_obj_create(card);
+  lv_obj_remove_style_all(list);
+  lv_obj_set_width(list, LV_PCT(100));
+  lv_obj_set_flex_grow(list, 1);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_ACTIVE);
+  for (int k = 0; k < M_COUNT; k++) {
+    const int r = MENU_ORDER[k];
+    if (k == FREQUENT_COUNT) {
+      lv_obj_t* h = theme::label(list, &font_m12, true, "Selten");
+      lv_obj_set_style_pad_top(h, 10, 0);
+      lv_obj_set_style_pad_bottom(h, 2, 0);
+    }
+    lv_obj_t* rr = lv_obj_create(list);
+    lv_obj_remove_style_all(rr);
+    lv_obj_set_size(rr, LV_PCT(100), MENU_ROW_H);
+    lv_obj_set_style_border_side(rr, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_width(rr, 1, 0);
+    lv_obj_set_style_border_color(rr, theme::c(theme::LINE), 0);
+    lv_obj_set_flex_flow(rr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(rr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(rr, 10, 0);
+    lv_obj_set_style_pad_hor(rr, 4, 0);
+    lv_obj_remove_flag(rr, LV_OBJ_FLAG_SCROLLABLE);
+    pressable(rr);
+    lv_obj_add_event_cb(rr, onMenuRow, LV_EVENT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(r)));
+    lv_obj_t* ic = theme::label(rr, &font_v24, false, MENU_ICONS[r]);
+    lv_obj_set_width(ic, 30);
+    lv_obj_set_style_text_align(ic, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(ic, theme::c(theme::ACCENT), 0);
+    lv_obj_t* key = theme::label(rr, &font_m20, false, MENU_KEYS[r]);
+    lv_obj_set_flex_grow(key, 1);
+    const bool toggle = r == M_TIPS || r == M_SPRINT;
+    if (toggle) {
+      lv_obj_t* pill = lv_obj_create(rr);
+      lv_obj_remove_style_all(pill);
+      lv_obj_set_size(pill, 54, 28);
+      lv_obj_set_style_radius(pill, 14, 0);
+      lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
+      lv_obj_remove_flag(pill, LV_OBJ_FLAG_CLICKABLE);
+      menuValues[r] = theme::label(pill, &font_m14, false, "");
+      lv_obj_center(menuValues[r]);
+      menuPills[r] = pill;
+    } else {
+      menuValues[r] = theme::label(rr, &font_m14, true, "");
+      menuPills[r] = nullptr;
     }
   }
 }
@@ -629,10 +639,10 @@ void update(const CarSnapshot& s) {
     rateText(s, text, sizeof(text), "Abfr./s");
     setText(menuValues[M_DIAG], menuShown[M_DIAG], sizeof(menuShown[0]), text);
     setText(menuValues[M_REFUEL], menuShown[M_REFUEL], sizeof(menuShown[0]), "von Hand");
-    setText(menuValues[M_TIPS], menuShown[M_TIPS], sizeof(menuShown[0]), u.tips ? "an" : "aus");
+    setToggle(M_TIPS, u.tips != 0);
     fmt::number(n, sizeof(n), s.profile.coldRpmLimit, 0);
     setText(menuValues[M_COLD], menuShown[M_COLD], sizeof(menuShown[0]), n);
-    setText(menuValues[M_SPRINT], menuShown[M_SPRINT], sizeof(menuShown[0]), u.autoSprint ? "an" : "aus");
+    setToggle(M_SPRINT, u.autoSprint != 0);
     return;
   }
   if (stillOpen(Shown::Brightness)) {
@@ -674,18 +684,6 @@ void update(const CarSnapshot& s) {
         lv_obj_set_style_text_color(dlgValue[1 + i],
                                     theme::c(!std::isnan(left[i]) && left[i] < cfg::MAINT_WARN_KM ? theme::WARN : theme::MUTED), 0);
     }
-    // Abgleich: aktuelle Faktoren
-    char n[16];
-    fmt::number(n, sizeof(n), s.profile.fuelCal, 2);
-    snprintf(text, sizeof(text), "\xC3\x97%s", n);  // ×
-    setText(dlgValue[3], dlgShown[3], sizeof(dlgShown[3]), text);
-    const float v = s.speed.get(s.now);
-    fmt::number(n, sizeof(n), s.profile.kmFactor, 3);
-    if (std::isnan(v) || v < cfg::SPEED_CAL_MIN_KMH)
-      snprintf(text, sizeof(text), "\xC3\x97%s", n);
-    else
-      snprintf(text, sizeof(text), "\xC3\x97%s " "\xC2\xB7" " jetzt", n);
-    setText(calSpeedValue, calSpeedShown, sizeof(calSpeedShown), text);
     return;
   }
   if (!stillOpen(Shown::Diagnose)) {

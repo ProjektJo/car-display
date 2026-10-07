@@ -117,8 +117,10 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
     if (std::isnan(t50_) && v >= 50) t50_ = (cross(50) - startMs_) / 1000.0f;
     // Sprint nur innerhalb der ersten 3 s nach dem Anfahren; danach bleibt es eine Live-Kurve
     if (state_ == State::Waiting && launch && t - startMs_ <= cfg::SPRINT_ARM_AFTER_LEAVE_MS + 200) state_ = State::Running;
-    const bool over = v < vTop_ - cfg::SPRINT_ABORT_DROP_KMH || t - startMs_ > cfg::SPRINT_MAX_MS ||
-                      (weak && t - startMs_ >= cfg::SPRINT_ACCEL_WINDOW_MS);
+    const bool drop = v < vTop_ - cfg::SPRINT_ABORT_DROP_KMH, slow = t - startMs_ > cfg::SPRINT_MAX_MS,
+               weakNow = weak && t - startMs_ >= cfg::SPRINT_ACCEL_WINDOW_MS;
+    const bool over = drop || slow || weakNow;
+    if (over) abortReason_ = drop ? 1 : (slow ? 2 : 3);
     if (state_ == State::Running) {
       if (!std::isnan(t50_) && std::isnan(last50Run_)) {
         last50Run_ = t50_;
@@ -190,7 +192,8 @@ AutoSprint::Action AutoSprint::update(uint32_t now, bool enabled, uint16_t launc
   }
   const bool running = st == State::Waiting || st == State::Running;
   const bool doneNow = st == State::Done && doneAtMs >= switchedAt_;
-  lowSince_ = (!std::isnan(pedalPct) && pedalPct < cfg::SPRINT_ABORT_PEDAL_PCT) ? (lowSince_ ? lowSince_ : now) : 0;
+  // Gas weg zählt nur, solange keine Messung läuft: das Rohpedal liegt bei manchen Autos auch bei Vollgas unter 50 %
+  lowSince_ = (!running && !std::isnan(pedalPct) && pedalPct < cfg::SPRINT_ABORT_PEDAL_PCT) ? (lowSince_ ? lowSince_ : now) : 0;
   bool ret = false;
   if (doneNow)
     ret = now - doneAtMs >= cfg::AUTO_SPRINT_RETURN_DONE_MS;  // Ergebnis 4 s stehen lassen

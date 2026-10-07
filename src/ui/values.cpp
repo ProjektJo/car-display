@@ -90,9 +90,9 @@ const char* unit(Key k, const CarSnapshot& s) {
 float value(Key k, const CarSnapshot& s) {
   const uint32_t n = s.now;
   switch (k) {
-    case Key::Speed: {  // mit dem Tempo-Faktor (OBD-Tempo weicht vom echten ab)
-      const float v = s.speed.get(n);
-      return std::isnan(v) ? NAN : v * s.profile.kmFactor;
+    case Key::Speed: {  // Anzeige: GPS-Tempo bei gutem Empfang, sonst der Wert des Autos (Jos Wunsch)
+      const float g = s.gpsSpeed.get(n);
+      return std::isnan(g) ? s.speed.get(n) : g;
     }
     case Key::Rpm: {
       const float r = s.rpm.get(n);

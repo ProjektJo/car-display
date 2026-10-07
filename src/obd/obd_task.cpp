@@ -186,6 +186,7 @@ void apply(const elmp::PidValue* v, int count, uint32_t now) {
         case 0x03: s.fuelSys.set(x, now); break;
         case 0x04: s.load.set(x, now); break;
         case 0x10: s.maf.set(x, now); break;
+        case 0x43: s.absLoad.set(x, now); break;
         case 0x5E: s.fuelRate.set(x, now); break;
         case 0x44: s.lambdaCmd.set(x, now); break;
         case 0x05: s.coolant.set(x, now); break;

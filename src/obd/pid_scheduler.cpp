@@ -43,6 +43,10 @@ void PidScheduler::reset(const uint8_t supported[32], bool can, uint8_t maxPerRe
     add(0x11, PidClass::Fast, true);
   }
   add(0x5E, PidClass::Fast, false);  // Kraftstoff l/h, falls das Auto ihn liefert (Verbrauch Quelle 1)
+  // Verbrauchsquelle 2 bzw. 3 schnell abfragen, damit der Momentanverbrauch mitkommt (7.10.2026)
+  const bool fuelRate = this->supported(0x5E), maf = this->supported(0x10);
+  if (!fuelRate && maf) add(0x10, PidClass::Fast, false);
+  if (!fuelRate && !maf) add(0x43, PidClass::Fast, false);  // absolute Last
 
   // mittel: ca. 1 s
   add(0x0F, PidClass::Medium, false);  // Ansaugluft
@@ -50,7 +54,7 @@ void PidScheduler::reset(const uint8_t supported[32], bool can, uint8_t maxPerRe
   add(0x07, PidClass::Medium, false);  // LTFT
   add(0x03, PidClass::Medium, false);  // Kraftstoffsystem-Status (Schub)
   add(0x04, PidClass::Medium, false);  // Last
-  add(0x10, PidClass::Medium, false);  // MAF, falls da
+  if (fuelRate) add(0x10, PidClass::Medium, false);  // MAF, falls da (sonst schon schnell)
   add(0x44, PidClass::Medium, false);  // Soll-Lambda (A7 Konstanten)
   // ANNAHME: Mit Gaspedal reicht die Drosselklappe im mittleren Takt (Ersatz-Schuberkennung, A7).
   if (hasPedal) add(0x11, PidClass::Medium, false);

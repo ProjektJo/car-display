@@ -4,10 +4,11 @@
 
 namespace fuel {
 
-Source chooseSource(FuelType fuel, bool hasFuelRate, bool hasMaf, bool hasMap, bool hasRpm) {
+Source chooseSource(FuelType fuel, bool hasFuelRate, bool hasMaf, bool hasMap, bool hasRpm, bool hasAbsLoad) {
   if (hasFuelRate) return Source::FuelRate;
   if (fuel == FuelType::Diesel) return Source::None;
   if (hasMaf) return Source::Maf;
+  if (hasAbsLoad && hasRpm) return Source::AbsLoad;
   if (hasMap && hasRpm) return Source::SpeedDensity;
   return Source::None;
 }
@@ -21,6 +22,10 @@ float speedDensityAirGs(float mapKpa, float displacementL, float rpm, float ve, 
   const float kelvin = iatC + cfg::KELVIN_OFFSET;
   if (!(kelvin > 0)) return NAN;
   return mapKpa * displacementL * (rpm / 120.0f) * ve / (cfg::R_AIR_KJ_PER_KG_K * kelvin);
+}
+
+float absLoadAirGs(float absLoadPct, float displacementL, float rpm) {
+  return absLoadPct / 100.0f * cfg::AIR_STP_G_PER_L * displacementL * (rpm / 120.0f);
 }
 
 namespace {
@@ -43,6 +48,10 @@ float rateLph(Source src, const Engine& e, const Input& in) {
       break;
     case Source::Maf:
       if (!std::isnan(in.mafGs)) lph = fuelFromAir(in.mafGs, in) * 3600.0f / densityGPerL(e.fuel);
+      break;
+    case Source::AbsLoad:
+      if (std::isnan(in.absLoadPct) || std::isnan(in.rpm) || !(e.displacementL > 0)) break;
+      lph = fuelFromAir(absLoadAirGs(in.absLoadPct, e.displacementL, in.rpm), in) * 3600.0f / densityGPerL(e.fuel);
       break;
     case Source::SpeedDensity: {
       if (std::isnan(in.mapKpa) || std::isnan(in.rpm)) break;

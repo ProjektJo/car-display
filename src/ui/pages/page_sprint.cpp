@@ -24,7 +24,8 @@ constexpr uint32_t DONE_SHOW_MS = 10000;  // Ergebnis 10 s lang im Feld
 // Chips unten
 constexpr int32_t CHIP_SIDE = 8, CHIP_GAP = 6, CHIP_BOTTOM = 5, CHIP_H = 40;
 // Feld READY / GO
-constexpr int32_t READY_W = 150, READY_H = 56, GO_W = 64, GO_H = 26;
+constexpr int32_t READY_W = 150, READY_H = 56, GO_W = 54, GO_H = 20;
+constexpr float DASH_ON = 4.0f, DASH_OFF = 3.0f;  // Bestzeit fein gestrichelt
 
 const char* const NAMES[3] = {"0" "\xE2\x80\x93" "50", "0" "\xE2\x80\x93" "100", "80" "\xE2\x80\x93" "120"};
 
@@ -89,7 +90,7 @@ class SprintPage : public Page {
     lv_obj_t* s = theme::label(timeRow_, &font_m14, true, "s");
     lv_obj_set_style_pad_bottom(s, 6, 0);
     sub_ = theme::label(parent, &font_m12, true, "");
-    lv_obj_set_pos(sub_, GX0 + 8, GY0 + 42);
+    lv_obj_set_pos(sub_, GX0 + 8 + GO_W + 6, GY0 + 44);
 
     // Feld READY (groß, Mitte) bzw. GO (klein, oben rechts) bzw. Ergebnis
     badge_ = lv_obj_create(parent);
@@ -167,7 +168,7 @@ class SprintPage : public Page {
         lv_obj_set_style_text_color(badgeText_, theme::c(mode == 3 ? theme::TEXT : theme::BG), 0);
         if (small) {
           lv_obj_set_size(badge_, GO_W, GO_H);
-          lv_obj_set_pos(badge_, GX1 - GO_W - 4, GY0 + 4);
+          lv_obj_set_pos(badge_, GX0 + 8, GY0 + 42);
         } else {
           lv_obj_set_size(badge_, mode == 4 ? READY_W + 20 : READY_W, mode == 4 ? 40 : READY_H);
           lv_obj_set_pos(badge_, (GX0 + GX1) / 2 - (mode == 4 ? READY_W + 20 : READY_W) / 2 + (mode == 4 ? 30 : 0),
@@ -320,10 +321,27 @@ class SprintPage : public Page {
   void drawTrace(lv_layer_t* layer, const perf::Trace& tr, int32_t ox, int32_t oy, float tMax, uint32_t col, int32_t w,
                  bool dashed) {
     int32_t lx = 0, ly = 0;
+    float phase = 0;  // fein gestrichelt: 4 px Strich, 3 px Lücke, über die Stützpunkte hinweg
     for (int i = 0; i < tr.count; i++) {
       const int32_t x = px(ox, tr.timeAt(i), tMax);
       const int32_t y = py(oy, i * perf::TRACE_STEP_KMH);
-      if (i > 0 && (!dashed || i % 2 == 1)) line(layer, lx, ly, x, y, col, w);
+      if (i > 0) {
+        if (!dashed) {
+          line(layer, lx, ly, x, y, col, w);
+        } else {
+          const float len = std::sqrt(static_cast<float>((x - lx) * (x - lx) + (y - ly) * (y - ly)));
+          for (float d = 0; d < len;) {
+            const float cyc = std::fmod(phase, DASH_ON + DASH_OFF);
+            const float step = cyc < DASH_ON ? DASH_ON - cyc : DASH_ON + DASH_OFF - cyc;
+            const float e = d + step < len ? d + step : len;
+            if (cyc < DASH_ON && len > 0)
+              line(layer, lx + std::lround((x - lx) * d / len), ly + std::lround((y - ly) * d / len),
+                   lx + std::lround((x - lx) * e / len), ly + std::lround((y - ly) * e / len), col, w);
+            phase += e - d;
+            d = e;
+          }
+        }
+      }
       lx = x;
       ly = y;
     }
@@ -383,8 +401,8 @@ class SprintPage : public Page {
       drawTrace(layer, sp.lastTrace, ox, oy, tMax, sp.state == perf::State::Done ? theme::GOOD : theme::ACCENT, 3, false);
     }
     // Legende rechts unten im Diagramm
-    text(layer, "\xE2\x80\x94 letzte", ox + GX1 - 120, oy + GY0 + 34, 60, LV_TEXT_ALIGN_RIGHT, theme::ACCENT);
-    text(layer, "- - beste", ox + GX1 - 56, oy + GY0 + 34, 54, LV_TEXT_ALIGN_RIGHT, theme::GOOD);
+    text(layer, "\xE2\x80\x94 letzte", ox + GX1 - 120, py(oy, 0) - 16, 60, LV_TEXT_ALIGN_RIGHT, theme::ACCENT);
+    text(layer, "- - beste", ox + GX1 - 56, py(oy, 0) - 16, 54, LV_TEXT_ALIGN_RIGHT, theme::GOOD);
   }
 
   lv_obj_t* graph_ = nullptr;

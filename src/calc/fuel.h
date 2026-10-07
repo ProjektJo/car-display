@@ -9,12 +9,17 @@
 namespace fuel {
 
 // Woraus der Verbrauch gerechnet wird; die erste verfügbare Quelle gewinnt (A7)
-enum class Source : uint8_t { None, FuelRate, Maf, SpeedDensity };
+// AbsLoad (7.10.2026): Luft je Hub aus der absoluten Last (0x43), vom Steuergerät selbst gerechnet; braucht
+// keinen geschätzten Füllgrad wie Speed-Density.
+enum class Source : uint8_t { None, FuelRate, Maf, SpeedDensity, AbsLoad };
 
 // Quelle aus den unterstützten PIDs. Diesel nur über 0x5E: Luftmasse allein reicht beim
 // mager laufenden Diesel nicht (A7). ANNAHME: Der Weg über Breitband-Lambda (0x34–0x3B) fehlt
 // in dieser Version, Diesel ohne 0x5E zeigen "nicht verfügbar".
-Source chooseSource(FuelType fuel, bool hasFuelRate, bool hasMaf, bool hasMap, bool hasRpm);
+Source chooseSource(FuelType fuel, bool hasFuelRate, bool hasMaf, bool hasMap, bool hasRpm, bool hasAbsLoad = false);
+
+// Luft g/s aus der absoluten Last: Last/100 · 1,184 g/l · Hubraum · Drehzahl/120 (SAE J1979)
+float absLoadAirGs(float absLoadPct, float displacementL, float rpm);
 
 // Rohwerte eines Augenblicks; NAN = nicht unterstützt oder veraltet
 struct Input {
@@ -25,6 +30,7 @@ struct Input {
   float stftPct = NAN;
   float ltftPct = NAN;
   float mafGs = NAN;
+  float absLoadPct = NAN;  // 0x43
   float fuelRateLph = NAN;
   float lambda = NAN;       // Soll-Lambda (0x44)
   float fuelSys = NAN;      // 0x03

@@ -152,11 +152,19 @@ void update(const CarSnapshot& s) {
   setVisible(tankLbl, !std::isnan(tank));
   if (!std::isnan(tank)) {
     char num[12], text[24];
-    fmt::number(num, sizeof(num), tank, 0);
-    snprintf(text, sizeof(text), SYM_PUMP " %s l", num);
-    setText(tankLbl, shownTank, sizeof(shownTank), text);
     const float range = s.rangeKm.get(s.now);
-    const uint32_t col = range < cfg::RANGE_LOW_KM ? theme::WARN : theme::MUTED;
+    // Reichweite knapp: statt der Liter die km, bernstein; unter 20 km rot und blinkend
+    const bool low = range < cfg::RANGE_LOW_KM, crit = range < cfg::RANGE_CRIT_KM;
+    if (low) {
+      fmt::number(num, sizeof(num), range, 0);
+      snprintf(text, sizeof(text), SYM_PUMP " %s km", num);
+    } else {
+      fmt::number(num, sizeof(num), tank, 0);
+      snprintf(text, sizeof(text), SYM_PUMP " %s l", num);
+    }
+    setText(tankLbl, shownTank, sizeof(shownTank), text);
+    if (crit) setVisible(tankLbl, (s.now / 500) % 2 == 0);
+    const uint32_t col = crit ? theme::BAD : (low ? theme::WARN : theme::MUTED);
     if (col != shownTankColor) {
       shownTankColor = col;
       lv_obj_set_style_text_color(tankLbl, theme::c(col), 0);

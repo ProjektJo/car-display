@@ -213,6 +213,9 @@ void task(void*) {
         s.hasGps = hasGps;
         s.gpsFix = fix;
         s.gpsSats = static_cast<uint8_t>(gps.satellites.isValid() ? gps.satellites.value() : 0);
+        // GPS-Tempo für die Anzeige, nur bei gutem Empfang
+        if (fix && gps.speed.isValid() && gps.speed.age() < 2000 && s.gpsSats >= cfg::KMF_MIN_SATS)
+          s.gpsSpeed.set(static_cast<float>(gps.speed.kmph()), now);
         s.gpsTimeValid = timeOk;
         if (timeOk) {
           s.gpsHour = static_cast<uint8_t>(loc.hour);

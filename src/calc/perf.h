@@ -69,6 +69,8 @@ class SprintMeter {
   const Trace& lastTrace() const { return state_ == State::Running || state_ == State::Waiting ? cur_ : trace_; }
   // Jedes neue Ergebnis zählt resultSeq hoch; dazu Art, Zeit und die Bestzeit davor (NAN = keine)
   uint16_t resultSeq() const { return resultSeq_; }
+  // Grund des letzten Abbruchs (Diagnose): 0 keiner, 1 Tempo gefallen, 2 zu lang, 3 zu schwach beschleunigt
+  uint8_t abortReason() const { return abortReason_; }
   Kind resultKind() const { return resultKind_; }
   float resultS() const { return resultS_; }
   float resultPrevBest() const { return resultPrevBest_; }
@@ -112,6 +114,7 @@ class SprintMeter {
   float vTop80_ = 0;
   // letztes Ergebnis
   uint16_t resultSeq_ = 0;
+  uint8_t abortReason_ = 0;
   Kind resultKind_ = Kind::None;
   float resultS_ = NAN, resultPrevBest_ = NAN;
 };

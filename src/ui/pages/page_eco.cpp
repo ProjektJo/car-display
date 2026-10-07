@@ -36,6 +36,7 @@ constexpr int32_t POINTS = 5;
 constexpr int32_t CURVE_W = 2;
 constexpr int32_t DOT_R = 4, DOT_R_NOW = 5;
 constexpr float TRIP_DOT_MIN_KM = 10.0f; // Fahrt: Punkt und Wert erst ab 10 km, die Linie ab 0,5 km (Jos Wunsch)
+constexpr float LABEL_W = 34, LABEL_H = 15;  // Platz eines Werts (z. B. "10,8") für die Überlappungsprüfung
 constexpr int32_t GRID_STEP = 4;      // Raster bei 0, 4, 8, 12 l/100 km
 constexpr lv_opa_t FILL_OPA_TOP = 110;   // Fläche unter der Kurve: oben kräftig, nach unten durchsichtig
 constexpr lv_opa_t REF_OPA = 180;     // Bezugslinie Tank-Schnitt (Vorschau: 0,7)
@@ -517,17 +518,42 @@ class EcoPage : public Page {
     const uint32_t tripCol = c.tripDot ? refColor(c.tripV, c.ref) : theme::MUTED;
     if (trip) drawText(layer, "Fahrt", static_cast<int32_t>(tx) - 30, oy + CY0 - 15, 60, LV_TEXT_ALIGN_CENTER, tripCol);
 
-    // Wert des Fahrt-Punkts auf die andere Seite, wenn ein Nachbarwert schon dort steht
-    bool tripAbove = c.tripDot && labelAbove(ty, oy);
+    // Wert des Fahrt-Punkts: über, unter, rechts oder links vom Punkt, wo er keinen festen Wert und keinen
+    // festen Punkt überdeckt (Rechtecke der Beschriftungen, Jos Wunsch "nicht überlagern")
+    int32_t tlx = 0, tly = 0;
+    lv_text_align_t tal = LV_TEXT_ALIGN_CENTER;
     if (c.tripDot) {
+      struct Box { float x0, y0, x1, y1; };
+      Box taken[2 * POINTS];
+      int nt = 0;
       for (int i = 0; i < POINTS; i++) {
         if (std::isnan(c.v[i])) continue;
         const float x = ox + sx(i), y = oy + sy(c.v[i]);
-        if (std::fabs(x - tx) < 34 && labelAbove(y, oy) == tripAbove && std::fabs(y - ty) < 22) {
-          tripAbove = !tripAbove;
+        const float ly = labelAbove(y, oy) ? y - 20 : y + 6;
+        taken[nt++] = {x - LABEL_W / 2, ly, x + LABEL_W / 2, ly + LABEL_H};       // Wert
+        taken[nt++] = {x - DOT_R_NOW - 1, y - DOT_R_NOW - 1, x + DOT_R_NOW + 1, y + DOT_R_NOW + 1};  // Punkt
+      }
+      auto freeAt = [&](float x0, float y0) {
+        const float x1 = x0 + LABEL_W, y1 = y0 + LABEL_H;
+        if (y0 < oy + CY0 - 16 || y1 > base) return false;  // nicht aus dem Diagramm
+        for (int k = 0; k < nt; k++)
+          if (x0 < taken[k].x1 && x1 > taken[k].x0 && y0 < taken[k].y1 && y1 > taken[k].y0) return false;
+        return true;
+      };
+      const float cand[4][2] = {{tx - LABEL_W / 2, ty - 20}, {tx - LABEL_W / 2, ty + 6},
+                                {tx + DOT_R + 3, ty - LABEL_H / 2}, {tx - DOT_R - 3 - LABEL_W, ty - LABEL_H / 2}};
+      const lv_text_align_t al[4] = {LV_TEXT_ALIGN_CENTER, LV_TEXT_ALIGN_CENTER, LV_TEXT_ALIGN_LEFT, LV_TEXT_ALIGN_RIGHT};
+      int pick = labelAbove(ty, oy) ? 0 : 1;
+      for (int k = 0; k < 4; k++) {
+        const int j = k == 0 ? pick : (k == pick ? 0 : k);
+        if (freeAt(cand[j][0], cand[j][1])) {
+          pick = j;
           break;
         }
       }
+      tlx = static_cast<int32_t>(cand[pick][0]);
+      tly = static_cast<int32_t>(cand[pick][1]);
+      tal = al[pick];
     }
 
     // Punkte mit Wert
@@ -545,7 +571,10 @@ class EcoPage : public Page {
     }
     if (c.tripDot) {
       dot(layer, tx, ty, DOT_R, tripCol);
-      valueText(layer, tx, ty, c.tripV, tripAbove, tripCol);
+      char n[16], t2[20];
+      fmt::number(n, sizeof(n), c.tripV, 1);
+      snprintf(t2, sizeof(t2), "%s%s", n, c.tripV > cfg::ECO_CURVE_TOP_L100 ? "\xE2\x86\x91" : "");
+      drawText(layer, t2, tlx, tly, static_cast<int32_t>(LABEL_W), tal, tripCol);
     }
   }
 

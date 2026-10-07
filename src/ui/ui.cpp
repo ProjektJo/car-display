@@ -333,7 +333,8 @@ void task(void*) {
           break;
         case perf::AutoSprint::Action::Return:
           if (beforeSprint >= 0 && PAGES[beforeSprint]->available(snap)) showPage(beforeSprint);
-          Serial.println("Auto-Sprint: zurück");
+          Serial.printf("Auto-Sprint: zurück (Messung %d, Gas %.0f %%)\n", static_cast<int>(snap.sprint.state),
+                        values::value(values::Key::Pedal, snap));
           break;
         case perf::AutoSprint::Action::None:
           break;

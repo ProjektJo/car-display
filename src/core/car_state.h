@@ -145,6 +145,7 @@ struct CarState {
   Val fuelSys{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};      // Kraftstoffsystem-Status (0x03), 4 = Schub
   Val load{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};         // Motorlast % (0x04)
   Val maf{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};          // Luftmasse g/s (0x10)
+  Val absLoad{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};      // absolute Last % (0x43): Luft je Hub, vom Steuergerät
   Val fuelRate{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Kraftstoff l/h (0x5E)
   Val lambdaCmd{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};    // Soll-Lambda (0x44)
   Val coolant{NAN, 0, cfg::PID_PERIOD_SLOW_MS};        // Kühlmittel °C (0x05)
@@ -216,6 +217,7 @@ struct CarState {
   Val slopePct{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Steigung % (+ = bergauf)
   bool hasGps = false;                                  // GPS liefert NMEA
   bool gpsFix = false;
+  Val gpsSpeed{NAN, 0, 2000};                           // km/h laut GPS (nur mit Fix und ≥ 5 Satelliten)
   uint8_t gpsSats = 0;
   bool gpsTimeValid = false;
   uint8_t gpsHour = 0, gpsMinute = 0;                  // Ortszeit

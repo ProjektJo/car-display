@@ -149,6 +149,7 @@ constexpr float R_AIR_KJ_PER_KG_K = 0.28705f;     // Gaskonstante Luft
 constexpr float KELVIN_OFFSET = 273.15f;
 // ANNAHME: Liefert das Auto keine Ansauglufttemperatur (0x0F), rechnet Speed-Density mit 25 °C.
 constexpr float IAT_FALLBACK_C = 25.0f;
+constexpr float AIR_STP_G_PER_L = 1.184f;         // Luftdichte bei 25 °C, Bezug der absoluten Last (0x43)
 constexpr float L100_MIN_SPEED_KMH = 5.0f;        // l/100 km erst ab 5 km/h, darunter l/h (A7)
 constexpr uint32_t INSTANT_WINDOW_MS = 1000;      // Momentanverbrauch = 1-s-Mittel (A7)
 // Schubabschaltung: 0x03 = 4 "open loop due to deceleration" (A7)
@@ -165,11 +166,8 @@ constexpr float CUT_PEDAL_MARGIN_PCT = 2.0f;      // Pedal gilt bis 2 Prozentpun
 constexpr float CAL_MIN_KM = 150.0f;
 constexpr float CAL_RATIO_MIN = 0.7f;
 constexpr float CAL_RATIO_MAX = 1.3f;
-constexpr float FUEL_CAL_MIN = 0.5f;  // 7.10.2026 erweitert: Abgleich mit dem Bordcomputer (Menü)
-constexpr float FUEL_CAL_MAX = 1.5f;
-constexpr float CAL_CAR_MIN_KM = 3.0f;  // Abgleich mit dem Bordcomputer erst ab 3 km Fahrt
-constexpr float SPEED_FACTOR_MIN = 0.85f, SPEED_FACTOR_MAX = 1.15f;  // Tempo-Abgleich mit dem Navi (Menü)
-constexpr float SPEED_CAL_MIN_KMH = 30.0f;
+constexpr float FUEL_CAL_MIN = 0.7f;
+constexpr float FUEL_CAL_MAX = 1.3f;
 
 // ---------------------------------------------------------------------------
 // Mittelwerte über Strecke (A7)
@@ -193,7 +191,10 @@ constexpr float RANGE_W_FILLS = 0.2f;             //          + 20 % Ø der letz
 constexpr uint8_t RANGE_FILLS = 5;
 constexpr float RANGE_TAU_S = 60.0f;              // nur die Prognose wird geglättet (τ = 60 s)
 constexpr float RANGE_CAUTIOUS_KM = 80.0f;        // darunter mit dem höchsten der drei Schnitte
-constexpr float RANGE_LOW_KM = 50.0f;             // darunter Tanksymbol und Kachel bernstein (A7, U)
+constexpr float RANGE_LOW_KM = 50.0f;             // darunter Tanksymbol und Kachel bernstein (A7, U) und Warnfenster
+constexpr float RANGE_CRIT_KM = 20.0f;            // darunter rot, blinkend und zweites Warnfenster (7.10.2026)
+constexpr float RANGE_REARM_KM = 30.0f;           // Warnung wieder scharf, wenn die Reichweite über 80 km steigt
+constexpr uint32_t RANGE_WARN_SHOW_MS = 12000;    // Warnfenster 12 s (Tippen schließt)
 // ANNAHME: Der Füllstand aus 0x2F schwappt; er wird mit τ = 30 s geglättet ("geglättet", A7).
 constexpr float TANK_LEVEL_TAU_S = 30.0f;
 constexpr float PRICE_TENTH_CENTS = 0.009f;       // feste ⁹ hinter Euro und Cent (A7)
@@ -290,7 +291,8 @@ constexpr float IDLE_LEARN_TAU_S = 60.0f;
 // ---------------------------------------------------------------------------
 // Spartipps (A9 Regelwerk)
 // ---------------------------------------------------------------------------
-constexpr uint32_t TIP_SHOW_MS = 8000;            // 8 s sichtbar
+constexpr uint32_t TIP_SHOW_MS = 20000;           // 20 s sichtbar (7.10.2026, vorher 8 s) ...
+constexpr uint32_t TIP_MIN_SHOW_MS = 10000;       // ... und mindestens 10 s, auch wenn der Anlass vorbei ist
 constexpr uint32_t TIP_GAP_MS = 60000;            // mindestens 60 s zwischen zwei Tipps
 constexpr uint32_t TIP_SAME_GAP_MS = 300000;      // derselbe Tipp frühestens nach 5 min
 constexpr uint32_t TIP_TOUCH_QUIET_MS = 3000;     // keine Tipps 3 s nach einem Tippen
@@ -333,7 +335,7 @@ constexpr float SPRINT_80_ACCEL_MS2 = 1.5f;       // 80–120 startet auch ohne 
 constexpr float SPRINT_ABORT_PEDAL_PCT = 50.0f;   // Auto-Sprint: zurück, wenn das Gas 2 s unter 50 % liegt
 constexpr float SPRINT_ABORT_DROP_KMH = 3.0f;     // Abbruch: Tempo fällt um mehr als 3 km/h ...
 constexpr uint32_t SPRINT_MAX_MS = 30000;         // ... oder die Messung dauert länger als 30 s ...
-constexpr float SPRINT_MIN_ACCEL_MS2 = 0.8f;      // ... oder im Verlauf weniger als 0,8 m/s² über ...
+constexpr float SPRINT_MIN_ACCEL_MS2 = 0.4f;      // ... oder im Verlauf weniger als 0,4 m/s² über ...
 constexpr uint32_t SPRINT_ACCEL_WINDOW_MS = 3000; // ... die letzten 3 s (eine Schaltpause ist kürzer)
 constexpr uint32_t AUTO_SPRINT_RETURN_DONE_MS = 4000;  // zurück 4 s nach dem Ziel ...
 constexpr uint32_t AUTO_SPRINT_RETURN_LOW_MS = 2000;   // ... 2 s nachdem das Gas unter 50 % fällt ...
