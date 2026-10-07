@@ -401,6 +401,7 @@ constexpr float KMF_MIN_KM = 20.0f;
 constexpr float KMF_MIN_SPEED_KMH = 30.0f;
 constexpr uint8_t KMF_MIN_SATS = 5;
 constexpr float KMF_MIN = 0.9f, KMF_MAX = 1.1f;
+constexpr float KMF_ODO_MIN_KM = 100.0f;          // Strecken-Faktor aus Tachostand-Einträgen erst ab 100 km Abstand
 constexpr uint32_t TRIP_GPS_PAUSE_S = 300;        // mit GPS-Uhrzeit: Pause > 5 min = neue Fahrt (A8)
 constexpr float SUN_TRANSITION_MIN = 15.0f;       // Tag/Nacht mit 15 min Übergang (A9 Sonnenstand)
 // Thermostat-Check (A9, Z 10): Fahrzeit > 15 min, davon > 8 min über 50 km/h, Kühlmittel < 75 °C,

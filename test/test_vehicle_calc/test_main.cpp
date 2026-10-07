@@ -300,6 +300,21 @@ void test_maintenance() {
   TEST_ASSERT_FLOAT_WITHIN(0.3f, 10000.0f - 1.1f, calc.out().oilLeftKm);
 }
 
+// Strecken-Faktor aus zwei Tachostand-Einträgen: Tacho 105 km, gezählt 100 km -> Faktor halb Richtung 1,05
+void test_km_factor_from_odo() {
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x11});
+  VehicleCalc calc;
+  calc.load(simProfile(), nullptr);
+  uint32_t now = 1;
+  calc.setOdo(50000);
+  cruise(calc, s, now, 100);
+  calc.setOdo(50105);
+  TEST_ASSERT_FLOAT_WITHIN(0.003f, 1.025f, calc.profile().kmFactor);  // gedämpft: (1,00 + 1,05) / 2
+  cruise(calc, s, now, 0.01f);  // Ausgaben erst im nächsten Schritt
+  TEST_ASSERT_FLOAT_WITHIN(0.2f, 50105.0f, calc.out().odoKm);
+}
+
 // Thermostat (A9): 16 min Fahrt, davon > 8 min über 50 km/h, Kühlmittel 65 °C -> einmal Hinweis;
 // wird der Motor warm, verschwindet der Eintrag; beim nächsten Start (innerhalb von 10) kein neuer Hinweis
 static void drive(VehicleCalc& calc, CarState& s, uint32_t& now, float minutes, float speed, float coolant) {
@@ -348,6 +363,7 @@ int main() {
   RUN_TEST(test_auto_goal);
   RUN_TEST(test_maintenance);
   RUN_TEST(test_thermostat);
+  RUN_TEST(test_km_factor_from_odo);
   return UNITY_END();
 }
 

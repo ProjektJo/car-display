@@ -1,6 +1,7 @@
 #include "vehicle_calc.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <initializer_list>
 
@@ -185,6 +186,21 @@ void VehicleCalc::setColdRpm(uint16_t rpm) {
 
 void VehicleCalc::setOdo(float km) {
   if (!active_ || !(km >= 0)) return;
+  // Strecken-Faktor lernen (ohne GPS, Jos Wunsch): Tacho-km seit dem letzten Eintrag gegen die gezählten km.
+  // Die gezählten km enthalten schon den aktuellen Faktor, also neuer Faktor = alter · Tacho ÷ gezählt.
+  if (st_.odoRefKm > 0) {
+    const float odoDelta = km - st_.odoRefKm;
+    const float counted = static_cast<float>(st_.totalKm) - st_.odoRefTotalKm;
+    if (odoDelta >= cfg::KMF_ODO_MIN_KM && counted > 0) {
+      const float target = profile_.kmFactor * odoDelta / counted;
+      setKmFactor(target);  // gedämpft, nur 0,9–1,1
+      std::printf("Strecken-Faktor aus Tachostand: Tacho %.1f km, gezählt %.1f km -> Ziel %.3f\n", odoDelta, counted, target);
+    }
+  }
+  if (st_.odoRefKm <= 0 || km - st_.odoRefKm >= cfg::KMF_ODO_MIN_KM || km < st_.odoRefKm) {
+    st_.odoRefKm = km;
+    st_.odoRefTotalKm = static_cast<float>(st_.totalKm);
+  }
   st_.odoOffsetKm = static_cast<float>(km - st_.totalKm);
   // Beim ersten Eintrag beginnen beide Zähler hier
   if (std::isnan(st_.oilDueKm)) st_.oilDueKm = km + st_.oilIntervalKm;

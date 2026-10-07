@@ -7,6 +7,7 @@
 #include "config.h"
 #include "core/commands.h"
 #include "core/profile.h"
+#include "ui/numpad.h"
 #include "storage/storage_task.h"
 #include "ui/overlay.h"
 #include "ui/symbols.h"
@@ -39,7 +40,8 @@ bool askingNow = false;
 Profile draft;
 // Bearbeiten statt neu anlegen (Menü "Fahrzeug"): ändert das geladene Profil
 bool editMode = false;
-bool powerTouched = false;  // Leistung von Hand gesetzt (sonst aus dem Hubraum geschätzt)
+bool powerTouched = false;
+float editOdoStart = NAN;   // Kilometerstand beim Öffnen des Editors (nur Änderungen senden)  // Leistung von Hand gesetzt (sonst aus dem Hubraum geschätzt)
 
 // ---------- kleine Bausteine ----------
 
@@ -130,6 +132,10 @@ lv_obj_t* nameLbl;
 lv_obj_t* dispLbl;
 lv_obj_t* tankLbl;
 lv_obj_t* powerLbl;
+lv_obj_t* odoLbl;
+float draftOdo = NAN;        // Kilometerstand im Assistenten (NAN = nicht eingetragen)
+float pendingOdo = NAN;      // nach dem Anlegen senden, sobald das neue Profil geladen ist
+uint8_t idBeforeCreate = 0;
 lv_obj_t* bodyLbl;
 lv_obj_t* fuelBtns[2];
 
@@ -145,6 +151,13 @@ void showDraft() {
   snprintf(t, sizeof(t), "%u kW", static_cast<unsigned>(draft.powerKw));
   lv_label_set_text(powerLbl, t);
   lv_label_set_text(bodyLbl, draft.bodyType().name);
+  if (std::isnan(draftOdo)) {
+    snprintf(t, sizeof(t), "eintragen");
+  } else {
+    fmt::number(num, sizeof(num), draftOdo, 0);
+    snprintf(t, sizeof(t), "%s km", num);
+  }
+  lv_label_set_text(odoLbl, t);
   for (int i = 0; i < 2; i++) {
     const bool sel = (i == 1) == (draft.fuel == FuelType::Diesel);
     lv_obj_set_style_border_color(fuelBtns[i], theme::c(sel ? theme::ACCENT : theme::LINE), 0);
@@ -180,6 +193,11 @@ void onStep(lv_event_t* e) {
   // Auf eine Nachkommastelle runden, damit sich kein Rundungsfehler aufsummiert
   draft.displacementL = static_cast<int>(draft.displacementL * 10.0f + 0.5f) / 10.0f;
   showDraft();
+}
+
+void onOdo(lv_event_t*) {
+  overlay::setOnClose(nullptr);  // Wechsel zum Ziffernfeld gilt nicht als Schließen
+  numpad::open("Kilometerstand (Tacho)", "km", draftOdo, 7, [](float km) { draftOdo = km; }, showWizard);
 }
 
 void onBody(lv_event_t*) {
@@ -218,12 +236,19 @@ void onSave(lv_event_t*) {
     Command b{CmdType::SetBody};
     b.i = draft.body;
     commands::toCalc(b);
+    if (!std::isnan(draftOdo) && draftOdo != editOdoStart) {
+      Command o{CmdType::SetOdo};
+      o.f = draftOdo;
+      commands::toCalc(o);
+    }
     closeChosen();
     return;
   }
   const uint16_t kw = draft.powerKw;
   draft.applyDerivedDefaults();
   if (powerTouched) draft.powerKw = kw;
+  pendingOdo = draftOdo;
+  idBeforeCreate = activeId;
   closeChosen();
   storage::createProfile(draft);
 }
@@ -234,6 +259,7 @@ void startDraft() {
   draft = Profile{};
   editMode = false;
   powerTouched = false;
+  draftOdo = NAN;
   draft.powerKw = static_cast<uint16_t>(draft.displacementL * cfg::POWER_KW_PER_L + 0.5f);
   if (n == 0)
     snprintf(draft.name, sizeof(draft.name), "%s", cfg::DEFAULT_PROFILE_NAME);
@@ -410,6 +436,10 @@ void showWizard() {
   lv_obj_set_style_text_align(powerLbl, LV_TEXT_ALIGN_CENTER, 0);
   button(r, SYM_UP, STEP_BTN_W, onStep, reinterpret_cast<void*>(POWER_UP));
 
+  r = row(card, "Kilometerstand");
+  lv_obj_t* odoBtn = button(r, "", NAME_W, onOdo);
+  odoLbl = lv_obj_get_child(odoBtn, 0);
+
   r = row(card, "Art");
   lv_obj_t* bodyBtn = button(r, "", NAME_W, onBody);
   bodyLbl = lv_obj_get_child(bodyBtn, 0);
@@ -443,10 +473,20 @@ void openEditor(const CarSnapshot& s) {
   if (!std::isnan(s.profile.tankL)) draft.tankL = s.profile.tankL;
   draft.powerKw = s.profile.powerKw;
   draft.body = s.profile.body;
+  const float odo = s.odoKm.get(s.now);
+  draftOdo = std::isnan(odo) ? NAN : std::round(odo);
+  editOdoStart = draftOdo;
   showWizard();
 }
 
 void update(const CarSnapshot& s) {
+  // Neues Fahrzeug: Kilometerstand senden, sobald das neue Profil geladen ist
+  if (!std::isnan(pendingOdo) && s.profile.id && s.profile.id != idBeforeCreate && !s.profile.asking) {
+    Command o{CmdType::SetOdo};
+    o.f = pendingOdo;
+    commands::toCalc(o);
+    pendingOdo = NAN;
+  }
   activeId = s.profile.id;
   askingNow = s.profile.asking;
   if (s.profile.asking && s.profile.askSeq != handledAsk) {

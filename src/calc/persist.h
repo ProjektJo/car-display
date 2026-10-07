@@ -72,7 +72,11 @@ struct PersistState {
   uint8_t reserved3;
   uint16_t thermoBlockStarts;  // so viele Starts noch kein neuer Thermostat-Hinweis
   uint32_t lastGpsEpoch;       // letzte GPS-Zeit (UTC, s): Fahrtende ohne Strom (A8)
-  float spare[6];
+  // 7.10.2026 (im Reserveplatz, Version bleibt 4): Strecken-Faktor aus Tachostand-Einträgen lernen.
+  // 0 = noch kein Bezug (ältere Dateien haben hier Nullen)
+  float odoRefKm;              // Tachostand beim letzten Eintrag
+  float odoRefTotalKm;         // gezählte km (totalKm) beim letzten Eintrag
+  float spare[4];
   uint32_t crc;                // CRC-32 über alles davor
 };
 
