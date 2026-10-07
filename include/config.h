@@ -465,7 +465,7 @@ constexpr int16_t SWIPE_DOWN_START_MAX_Y_PX = 40; // ... wenn es in den obersten
 // Fingerausgleich (Jos Wunsch): Man tippt eher einen Tick unter den Knopf, um zu sehen, was man tippt.
 // Der Touch-Punkt wird deshalb um so viele Pixel nach oben (aus Sicht des Fahrers) geschoben, in beiden
 // Lagen gleich, außer im Touch-Test (der zeigt die reine Geometrie). Zu viel oder zu wenig: nur diese Zahl.
-constexpr int16_t TOUCH_FINGER_OFFSET_Y_PX = 6;
+constexpr int16_t TOUCH_FINGER_OFFSET_Y_PX = 0;  // 7.10.2026 aus (Jo: zu extrem), vorher 6
 constexpr bool TOUCH_DEBUG_LOG = true;            // Roh- und umgerechnete Touch-Koordinaten im seriellen Monitor
 // Fehlersuche: Ein "S" über den seriellen Monitor schickt ein Bildschirmfoto an den PC (tools/screenshot.py)
 constexpr bool SCREENSHOT_SERIAL = true;
