@@ -65,7 +65,10 @@ class TripTankPage : public Page {
     static const char* const TRIP_KEYS[ROWS] = {"Strecke", "Dauer", SYM_AVG " Verbrauch", "Kosten", "Leerlauf", "Eco-Score"};
     static const char* const TANK_KEYS[ROWS] = {"Gefahren", "Verbraucht", "Im Tank", "Reichweite", SYM_AVG "-Preis im Tank",
                                                "Kosten/100 km"};
-    makeColumn(parent, COL1_X, "Fahrt", TRIP_KEYS, trip_);
+    tripTitle_ = makeColumn(parent, COL1_X, "Fahrt", TRIP_KEYS, trip_);
+    lastHint_ = theme::label(parent, &font_m12, true, "letzte Fahrt");
+    lv_obj_set_pos(lastHint_, COL1_X + 44, COL_TOP + 2);
+    lv_obj_add_flag(lastHint_, LV_OBJ_FLAG_HIDDEN);
     makeColumn(parent, COL2_X, "Tankfüllung", TANK_KEYS, tank_);
     lv_obj_t* div = lv_obj_create(parent);
     lv_obj_remove_style_all(div);
@@ -101,19 +104,28 @@ class TripTankPage : public Page {
     last_ = s;
     const uint32_t n = s.now;
     char t[24];
-    // Fahrt
-    withUnit(t, sizeof(t), s.tripKm.get(n), 1, "km");
+    // Fahrt; nach dem Fahrtende die Werte der letzten Fahrt, bis die neue 0,1 km hat (Jos Wunsch, A5)
+    const float liveKm = s.tripKm.get(n);
+    const bool showLast = s.hasLastTrip && (std::isnan(liveKm) || liveKm < cfg::TRIP_MIN_RECORD_KM);
+    if (showLast != shownLast_) {
+      shownLast_ = showLast;
+      if (showLast) lv_obj_remove_flag(lastHint_, LV_OBJ_FLAG_HIDDEN);
+      else lv_obj_add_flag(lastHint_, LV_OBJ_FLAG_HIDDEN);
+    }
+    const trip::TripRecord& lt = s.lastTrip;
+    const float km = showLast ? lt.km : liveKm;
+    const float l = showLast ? lt.liters : s.tripL.get(n);
+    withUnit(t, sizeof(t), km, 1, "km");
     set(trip_, 0, t);
-    hmm(t, sizeof(t), s.tripDurationS.get(n));
+    hmm(t, sizeof(t), showLast ? lt.durationS : s.tripDurationS.get(n));
     set(trip_, 1, t);
-    const float km = s.tripKm.get(n), l = s.tripL.get(n);
     withUnit(t, sizeof(t), (!std::isnan(km) && km >= cfg::TRIP_AVG_MIN_KM) ? l / km * 100.0f : NAN, 1, "l/100");
     set(trip_, 2, t);
-    withUnit(t, sizeof(t), s.tripCost.get(n), 2, SYM_EURO);
+    withUnit(t, sizeof(t), showLast ? lt.cost : s.tripCost.get(n), 2, SYM_EURO);
     set(trip_, 3, t);
-    mmss(t, sizeof(t), s.tripIdleS.get(n));
+    mmss(t, sizeof(t), showLast ? lt.idleS : s.tripIdleS.get(n));
     set(trip_, 4, t);
-    const float score = s.ecoScore.get(n);
+    const float score = showLast ? lt.ecoScore : s.ecoScore.get(n);
     fmt::number(t, sizeof(t), score, 0);
     set(trip_, 5, t,
         std::isnan(score) ? theme::TEXT : score >= cfg::SCORE_GOOD ? theme::GOOD : score < cfg::SCORE_OK ? theme::WARN : theme::TEXT);
@@ -169,7 +181,7 @@ class TripTankPage : public Page {
     tankdlg::openManual(p->last_);
   }
 
-  void makeColumn(lv_obj_t* parent, int32_t x, const char* title, const char* const keys[ROWS], Column& c) {
+  lv_obj_t* makeColumn(lv_obj_t* parent, int32_t x, const char* title, const char* const keys[ROWS], Column& c) {
     lv_obj_t* t = theme::label(parent, &font_m14, false, title);
     lv_obj_set_pos(t, x, COL_TOP);
     for (int i = 0; i < ROWS; i++) {
@@ -182,6 +194,7 @@ class TripTankPage : public Page {
       lv_obj_set_pos(c.val[i], x, y);
       c.color[i] = theme::TEXT;
     }
+    return t;
   }
 
   static void set(Column& c, int i, const char* text, uint32_t color = theme::TEXT) {
@@ -200,6 +213,9 @@ class TripTankPage : public Page {
   }
 
   Column trip_, tank_;
+  lv_obj_t* tripTitle_ = nullptr;
+  lv_obj_t* lastHint_ = nullptr;
+  bool shownLast_ = false;
   RangeBar bar_;
   lv_obj_t* note_ = nullptr;
   const char* shownNote_ = nullptr;

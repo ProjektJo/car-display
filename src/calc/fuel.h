@@ -39,6 +39,7 @@ struct Input {
   float throttlePct = NAN;  // 0x11
   float pedalPct = NAN;     // 0x49 (Gaspedal)
   float pedalClosedPct = NAN;  // kleinster Pedalwert seit dem Laden (Pedal losgelassen)
+  float o2V = NAN;            // Lambdasonde Spannung (0x14–0x1B)
 };
 
 struct Engine {
@@ -57,9 +58,10 @@ float speedDensityAirGs(float mapKpa, float displacementL, float rpm, float ve, 
 // NAN, wenn ein nötiger Wert fehlt. Schubabschaltung prüft der Aufrufer (isFuelCut).
 float rateLph(Source src, const Engine& e, const Input& in);
 
-// Schubabschaltung (A7): 0x03 = 4, sonst Gaspedal losgelassen (ersatzweise Drosselklappe ≈ zu) bei
-// > 1200 U/min und > 15 km/h. Nach der ersten Fahrt (7.10.2026) gilt die Ersatzregel auch, wenn das Auto
-// 0x03 kennt: Viele Steuergeräte melden im Schub nie die 4, die Anzeige erkannte dann keinen Schub.
+// Schubabschaltung (A7): 0x03 = 4, sonst Fuß vom Gas bei > 1200 U/min und > 15 km/h. Fuß vom Gas: Gaspedal
+// (0x49/0x4A/0x5A) losgelassen; ohne Pedal Drosselklappe mit drehzahlabhängiger Toleranz (sie öffnet im Schub
+// bei hoher Drehzahl etwas). Mit Lambdasonde (0x14–0x1B) muss deren Spannung zusätzlich auf fast 0 V fallen.
+// Die Ersatzregel gilt auch, wenn das Auto 0x03 kennt (viele melden im Schub nie die 4).
 // throttleClosedPct = kleinster Drosselklappenwert seit dem Verbinden (NAN = unbekannt).
 bool isFuelCut(bool hasFuelSys, const Input& in, float throttleClosedPct);
 

@@ -7,8 +7,8 @@
 // Wettbewerbszeile (in dieser Reihenfolge):
 //  1. 8 s nach einem Sprint-Ergebnis: Zeit und Abstand zur Bestzeit ("Bestzeit!" grün, sonst "+0,4 s" orange)
 //  2. beim kräftigen Beschleunigen: Prozent der besten Beschleunigung dieser Fahrt ("Rekord!" ab 100 %)
-//  3. sonst "Zeit gewonnen": Wie viel Zeit die letzten 2 min gegenüber dem bisherigen Fahrtschnitt gebracht
-//     haben, dazu die Änderung des Ø Tempos
+//  3. sonst "Zeit gewonnen": Minuten gewonnen bzw. verloren auf dieser Fahrt gegenüber dem Ø Tempo der
+//     letzten Fahrten ("+2:30" grün, "–1:10" orange)
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -44,10 +44,6 @@ constexpr int DASH_PX = 3;
 // Wettbewerb
 constexpr uint32_t RESULT_SHOW_MS = 8000;
 constexpr float ACC_SHOW_MS2 = 1.0f;        // Beschleunigungs-Urteil ab 1 m/s² und 5 km/h
-constexpr uint32_t TREND_SAMPLE_MS = 10000; // Schnitt alle 10 s merken ...
-constexpr int TREND_SAMPLES = 13;           // ... 13 Proben = 2 min zurück
-constexpr float TREND_MIN_KMH = 0.5f;       // kleiner: neutral
-constexpr float TREND_MIN_TRIP_S = 300.0f;  // erst nach 5 min Fahrt (vorher schwankt der Schnitt zu stark)
 
 // Serienpaare (A10): Tempo + Leistung, Drehzahl + Gas, Beschleunigung + Leistung
 constexpr Ser PAIRS[3][2] = {{Ser::Speed, Ser::Kw}, {Ser::Rpm, Ser::Pedal}, {Ser::Acc, Ser::Kw}};
@@ -177,14 +173,14 @@ class SportPage : public Page {
     lv_obj_add_event_cb(gauge_, onDraw, LV_EVENT_DRAW_MAIN, this);
 
     // Tempo groß und Gang in der Mitte des Bogens
-    speed_ = theme::label(parent, &font_m48, false, fmt::NO_VALUE);
+    speed_ = theme::label(parent, &font_d72, false, fmt::NO_VALUE);
     lv_obj_set_width(speed_, 2 * R);
     lv_obj_set_style_text_align(speed_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(speed_, CX - R, CY - 36);
+    lv_obj_set_pos(speed_, CX - R, CY - 48);
     lv_obj_t* u = theme::label(parent, &font_m12, true, "km/h");
     lv_obj_set_width(u, 2 * R);
     lv_obj_set_style_text_align(u, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(u, CX - R, CY + 14);
+    lv_obj_set_pos(u, CX - R, CY + 22);
     gearRow_ = lv_obj_create(parent);
     lv_obj_remove_style_all(gearRow_);
     lv_obj_set_size(gearRow_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -198,13 +194,13 @@ class SportPage : public Page {
     gear_ = theme::label(gearRow_, &font_v24, false, fmt::NO_VALUE);
     lv_obj_t* gl = theme::label(gearRow_, &font_m12, true, "Gang");
     lv_obj_set_style_pad_bottom(gl, 4, 0);
-    lv_obj_align(gearRow_, LV_ALIGN_TOP_MID, CX - BOARD_LCD_HOR_RES / 2, CY + 30);
+    lv_obj_align(gearRow_, LV_ALIGN_TOP_MID, CX - BOARD_LCD_HOR_RES / 2, CY + 36);
 
     static const char* const LABELS[4] = {"Leistung", "Beschl.", "Gaspedal", "Saugrohr"};
     for (int i = 0; i < 4; i++) makeBar(parent, i, LABELS[i], i == 1);
 
     // Wettbewerbszeile
-    compete_ = theme::label(parent, &font_m20, false, "");
+    compete_ = theme::label(parent, &font_v24, false, "");
     lv_obj_set_width(compete_, BOARD_LCD_HOR_RES - 16);
     lv_obj_set_style_text_align(compete_, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(compete_, LV_LABEL_LONG_CLIP);
@@ -220,14 +216,6 @@ class SportPage : public Page {
       if (!shiftSince_) shiftSince_ = s.now ? s.now : 1;
     } else {
       shiftSince_ = 0;
-    }
-    // Schnitt-Trend: alle 10 s das Ø Tempo der Fahrt merken
-    if (!trendAt_ || s.now - trendAt_ >= TREND_SAMPLE_MS) {
-      trendAt_ = s.now ? s.now : 1;
-      trendKm_[trendHead_] = s.tripKm.get(s.now);
-      trendDur_[trendHead_] = s.tripDurationS.get(s.now);
-      trendHead_ = (trendHead_ + 1) % TREND_SAMPLES;
-      if (trendCount_ < TREND_SAMPLES) trendCount_++;
     }
     // Beste Beschleunigung dieser Sitzung (für das Urteil): zählt erst, wenn eine Beschleunigungsphase endet,
     // damit die laufende Phase mit dem bisherigen Rekord verglichen wird
@@ -311,6 +299,8 @@ class SportPage : public Page {
   }
 
  private:
+  // Kurz (9.10.2026, Jos Fassung A9): Sprint "0–100 +0,4 s", Beschleunigung "▲ 87 %",
+  // sonst Zeit gewonnen/verloren auf dieser Fahrt gegenüber dem Ø Tempo der letzten Fahrten: "+2:30" / "–1:10"
   void updateCompete(const CarSnapshot& s, float acc) {
     const SprintInfo& sp = s.sprint;
     char t[48] = "";
@@ -318,41 +308,29 @@ class SportPage : public Page {
     const float v = s.speed.get(s.now);
     if (resultAt_ && s.now - resultAt_ < RESULT_SHOW_MS && !std::isnan(sp.resultS)) {
       static const char* const K[] = {"", "0" "\xE2\x80\x93" "50", "0" "\xE2\x80\x93" "100", "80" "\xE2\x80\x93" "120"};
-      char n[12];
-      fmt::number(n, sizeof(n), sp.resultS, 1);
       const char* k = K[static_cast<int>(sp.resultKind) < 4 ? static_cast<int>(sp.resultKind) : 0];
-      if (std::isnan(sp.resultPrevBest) || sp.resultS < sp.resultPrevBest) {
-        snprintf(t, sizeof(t), "%s: %s s " SYM_DOT " Bestzeit!", k, n);
+      char n[12];
+      if (std::isnan(sp.resultPrevBest)) {
+        fmt::number(n, sizeof(n), sp.resultS, 1);
+        snprintf(t, sizeof(t), "%s  %s s", k, n);
         col = theme::GOOD;
       } else {
-        char d[12];
-        fmt::number(d, sizeof(d), sp.resultS - sp.resultPrevBest, 1);
-        snprintf(t, sizeof(t), "%s: %s s " SYM_DOT " +%s zur Best", k, n, d);
-        col = theme::WARN;
+        const float d = sp.resultS - sp.resultPrevBest;
+        fmt::number(n, sizeof(n), std::fabs(d), 1);
+        snprintf(t, sizeof(t), "%s  %s%s s", k, d > 0 ? "+" : "\xE2\x80\x93", n);
+        col = d > 0 ? theme::WARN : theme::GOOD;
       }
     } else if (!std::isnan(acc) && acc >= ACC_SHOW_MS2 && !std::isnan(v) && v > 5 && !std::isnan(accBest_) && accBest_ > 0) {
       const int pct = static_cast<int>(std::lround(acc / accBest_ * 100));
-      if (pct > 100) {
-        snprintf(t, sizeof(t), "Beschleunigung: Rekord!");
-        col = theme::GOOD;
-      } else {
-        snprintf(t, sizeof(t), "Beschleunigung %d %% vom Rekord", pct);
-        col = pct >= 85 ? theme::GOOD : theme::ACCENT;
-      }
-    } else if (trendCount_ >= TREND_SAMPLES) {
-      // Zeit gewonnen: Strecke der letzten 2 min mit dem Fahrtschnitt von davor gefahren hätte so lange gedauert
-      const int iNow = (trendHead_ + TREND_SAMPLES - 1) % TREND_SAMPLES, iThen = trendHead_;
-      const float km1 = trendKm_[iNow], d1 = trendDur_[iNow], km0 = trendKm_[iThen], d0 = trendDur_[iThen];
-      if (!std::isnan(km1) && !std::isnan(d1) && !std::isnan(km0) && !std::isnan(d0) && d0 > TREND_MIN_TRIP_S && km0 > 0.2f && d1 > d0) {
-        const float avgOld = km0 / (d0 / 3600.0f), avgNow = km1 / (d1 / 3600.0f);
-        const float gained = (km1 - km0) / avgOld * 3600.0f - (d1 - d0);
-        const float dv = avgNow - avgOld;
-        char n[12], m[12];
-        fmt::number(n, sizeof(n), std::fabs(gained), 0);
-        fmt::number(m, sizeof(m), std::fabs(dv), 1);
-        snprintf(t, sizeof(t), "%s s %s " SYM_DOT " " SYM_AVG " %s%s km/h", n, gained >= 0 ? "gewonnen" : "verloren",
-                 dv >= 0 ? "+" : "\xE2\x80\x93", m);
-        col = std::fabs(dv) < TREND_MIN_KMH ? theme::MUTED : (gained > 0 ? theme::GOOD : theme::WARN);
+      snprintf(t, sizeof(t), SYM_UP " %d %%", pct);
+      col = pct > 100 ? theme::GOOD : (pct >= 85 ? theme::GOOD : theme::ACCENT);
+    } else {
+      const float km = s.tripKm.get(s.now), dur = s.tripDurationS.get(s.now), ref = s.tripSpeedRefKmh;
+      if (!std::isnan(km) && !std::isnan(dur) && !std::isnan(ref) && ref > 1 && km >= cfg::TRIP_REF_MIN_KM) {
+        const float gained = km / ref * 3600.0f - dur;  // s: so viel früher als mit dem üblichen Schnitt
+        const unsigned a = static_cast<unsigned>(std::lround(std::fabs(gained)));
+        snprintf(t, sizeof(t), "%s%u:%02u", gained >= 0 ? "+" : "\xE2\x80\x93", a / 60, a % 60);  // –
+        col = std::fabs(gained) < cfg::GAIN_NEUTRAL_S ? theme::MUTED : (gained > 0 ? theme::GOOD : theme::WARN);
       }
     }
     setText(compete_, shownCompete_, sizeof(shownCompete_), t);
@@ -576,10 +554,6 @@ class SportPage : public Page {
   uint32_t drawnSeq_ = 0;
   uint32_t lastDraw_ = 0;
   // Wettbewerb
-  float trendKm_[TREND_SAMPLES] = {};
-  float trendDur_[TREND_SAMPLES] = {};
-  int trendHead_ = 0, trendCount_ = 0;
-  uint32_t trendAt_ = 0;
   float accBest_ = NAN;   // beste Beschleunigung abgeschlossener Phasen
   float phaseMax_ = NAN;  // laufende Phase
   uint16_t seenResult_ = 0;

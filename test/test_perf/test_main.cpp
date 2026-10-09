@@ -44,7 +44,7 @@ void test_sprint_valid() {
   TEST_ASSERT_FLOAT_IS_NAN(d.m.resultPrevBest());
 }
 
-// Kräftig losgefahren, dann zu schwach (1 km/h je s = 0,28 m/s²): Abbruch nach 3 s
+// Kräftig losgefahren, dann zu schwach (1 km/h je s): 50 km/h nicht nach 6,9 s erreicht -> Abbruch
 void test_sprint_weak_abort() {
   Drive d;
   d.stand(1.5f);
@@ -72,14 +72,33 @@ void test_sprint_by_accel() {
   TEST_ASSERT_FLOAT_WITHIN(0.2f, 8.33f, d.m.last100());
 }
 
-// Normales Anfahren: Live-Kurve läuft (Waiting), zählt aber nicht
+// Jedes Anfahren zählt sofort (Running), Kurve läuft mit
 void test_sprint_live_curve() {
   Drive d;
   d.stand(2.0f);
   while (d.v < 30) d.step(5.0f, 45);
-  TEST_ASSERT_EQUAL_INT((int)State::Waiting, (int)d.m.state());
+  TEST_ASSERT_EQUAL_INT((int)State::Running, (int)d.m.state());
   TEST_ASSERT_TRUE(d.m.lastTrace().count >= 6);
   TEST_ASSERT_TRUE(d.m.active());
+}
+
+// Mittel bis 50 km/h unter 2,0 m/s² (7,0 km/h je s): Abbruch bei 6,9 s; 7,5 km/h je s zählt
+void test_sprint_mean_to50() {
+  Drive d;
+  d.stand(1.5f);
+  do d.step(7.0f, 98);  // losfahren (im Stand ist der Zustand "bereit")
+  while (d.v < 101 && d.m.state() == State::Running);
+  TEST_ASSERT_TRUE(d.v > 40 && d.v < 50);  // abgebrochen kurz vor 50 km/h
+  TEST_ASSERT_EQUAL_INT((int)State::Ready, (int)d.m.state());
+  TEST_ASSERT_FLOAT_IS_NAN(d.m.last50());
+  TEST_ASSERT_EQUAL_UINT8(3, d.m.abortReason());
+
+  Drive e;
+  e.stand(1.5f);
+  while (e.v < 50) e.step(7.5f, 98);
+  for (int i = 0; i < 8 * 8; i++) e.step(1.0f, 98);  // danach langsam: zählt weiter (nur Tempoabfall/30 s)
+  TEST_ASSERT_EQUAL_INT((int)State::Running, (int)e.m.state());
+  TEST_ASSERT_FALSE(std::isnan(e.m.last50()));
 }
 
 // Normales Anfahren mit 45 % wird still verworfen
@@ -200,6 +219,7 @@ int main() {
   RUN_TEST(test_sprint_weak_abort);
   RUN_TEST(test_sprint_2ms2);
   RUN_TEST(test_sprint_live_curve);
+  RUN_TEST(test_sprint_mean_to50);
   RUN_TEST(test_sprint_shift_pause);
   RUN_TEST(test_sprint_speed_drop);
   RUN_TEST(test_sprint_80_120);

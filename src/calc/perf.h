@@ -32,7 +32,7 @@ struct Best {
 
 enum class State : uint8_t {
   Ready,     // bereit: steht bzw. wartet auf das nächste Anfahren aus dem Stand
-  Waiting,   // rollt aus dem Stand, Live-Kurve läuft, (noch) kein Sprint: zählt nicht
+  Waiting,   // (seit 9.10.2026 ungenutzt: jedes Anfahren zählt sofort)
   Running,   // Sprint erkannt, 0–100 läuft und zählt
   Done,      // Ziel erreicht
 };
@@ -69,7 +69,7 @@ class SprintMeter {
   const Trace& lastTrace() const { return state_ == State::Running || state_ == State::Waiting ? cur_ : trace_; }
   // Jedes neue Ergebnis zählt resultSeq hoch; dazu Art, Zeit und die Bestzeit davor (NAN = keine)
   uint16_t resultSeq() const { return resultSeq_; }
-  // Grund des letzten Abbruchs (Diagnose): 0 keiner, 1 Tempo gefallen, 2 zu lang, 3 zu schwach beschleunigt
+  // Grund des letzten Abbruchs (Diagnose): 0 keiner, 1 Tempo gefallen, 2 zu lang, 3 bis 50 km/h unter 2 m/s²
   uint8_t abortReason() const { return abortReason_; }
   Kind resultKind() const { return resultKind_; }
   float resultS() const { return resultS_; }
@@ -80,8 +80,6 @@ class SprintMeter {
  private:
   void abort();
   void result(Kind k, float s, float& best);
-  // Tempo vor etwa 3 s (aus dem Verlauf), NAN = noch zu kurz
-  float speedAgo(uint32_t t, uint32_t sinceMs) const;
 
   State state_ = State::Ready;
   Best best_ = {};
@@ -97,11 +95,6 @@ class SprintMeter {
   float prevV_ = NAN;
   float vTop_ = 0;
   bool standing_ = true;
-  // Tempo-Verlauf der letzten Sekunden (Abbruch bei zu schwacher Beschleunigung)
-  static constexpr int HIST = 48;
-  uint32_t histT_[HIST] = {};
-  float histV_[HIST] = {};
-  int histHead_ = 0, histCount_ = 0;
   float t50_ = NAN;            // laufende Messung
   uint32_t doneAt_ = 0;
   Trace trace_ = {};           // letzte gültige Messung

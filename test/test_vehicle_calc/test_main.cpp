@@ -144,7 +144,7 @@ void test_trip_continues_after_restart() {
 
   VehicleCalc cold;
   cold.load(simProfile(), &saved);
-  s.coolant.set(60, now);
+  s.coolant.set(50, now);  // unter 60 °C und mehr als 5 °C kälter: neue Fahrt
   cold.step(s, now, 0.1f);
   TEST_ASSERT_EQUAL_UINT16(number + 1, cold.state().trip.number);
   TEST_ASSERT_TRUE(cold.takeTripRecord(rec));

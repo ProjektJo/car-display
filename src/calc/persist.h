@@ -76,7 +76,9 @@ struct PersistState {
   // 0 = noch kein Bezug (ältere Dateien haben hier Nullen)
   float odoRefKm;              // Tachostand beim letzten Eintrag
   float odoRefTotalKm;         // gezählte km (totalKm) beim letzten Eintrag
-  float spare[4];
+  // 9.10.2026: Ø Tempo der letzten Fahrten (gleitend, km/h; 0 = noch keins) für "Zeit gewonnen" (Sport)
+  float tripSpeedRefKmh;
+  float spare[3];
   uint32_t crc;                // CRC-32 über alles davor
 };
 

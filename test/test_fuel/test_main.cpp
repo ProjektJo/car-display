@@ -79,6 +79,17 @@ void test_fuel_cut() {
   in.rpm = 1800;
   in.throttlePct = 20;
   TEST_ASSERT_FALSE(fuel::isFuelCut(false, in, 11.8f));  // Gas
+  // hohe Drehzahl im kleinen Gang: Klappe 17 % (öffnet im Schub etwas), Toleranz 1,5 + 2 · 2,8 = 7,1
+  in.rpm = 4000;
+  in.throttlePct = 17;
+  TEST_ASSERT_TRUE(fuel::isFuelCut(false, in, 11.8f));
+  in.o2V = 0.7f;  // Sonde fett: doch kein Schub
+  TEST_ASSERT_FALSE(fuel::isFuelCut(false, in, 11.8f));
+  in.o2V = 0.05f;  // Sonde mager: Schub bestätigt
+  TEST_ASSERT_TRUE(fuel::isFuelCut(false, in, 11.8f));
+  in.throttlePct = NAN;  // nur die Sonde
+  TEST_ASSERT_TRUE(fuel::isFuelCut(false, in, 11.8f));
+  in.o2V = NAN;
 }
 
 // 4 km/h -> kein l/100-Wert (Anzeige l/h)

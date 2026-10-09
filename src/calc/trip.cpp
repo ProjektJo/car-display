@@ -33,8 +33,9 @@ TripRecord toRecord(const TripState& t, uint8_t profileId) {
 }
 
 bool continues(float coolantAtStopC, float coolantAtStartC) {
-  if (std::isnan(coolantAtStopC) || std::isnan(coolantAtStartC)) return false;
-  return coolantAtStopC >= cfg::TRIP_WARM_C && coolantAtStartC >= coolantAtStopC - cfg::TRIP_PAUSE_MAX_DROP_C;
+  if (std::isnan(coolantAtStartC)) return false;
+  if (coolantAtStartC >= cfg::TRIP_WARM_C) return true;
+  return !std::isnan(coolantAtStopC) && coolantAtStartC >= coolantAtStopC - cfg::TRIP_PAUSE_MAX_DROP_C;
 }
 
 }  // namespace trip

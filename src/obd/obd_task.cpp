@@ -179,7 +179,10 @@ void apply(const elmp::PidValue* v, int count, uint32_t now) {
         case 0x0C: s.rpm.set(x, now); break;
         case 0x0B: s.map.set(x, now); break;
         case 0x11: s.throttle.set(x, now); break;
-        case 0x49: s.pedal.set(x, now); break;
+        case 0x49: case 0x4A: case 0x5A: s.pedal.set(x, now); break;  // es wird nur eines abgefragt
+        case 0x14: case 0x15: case 0x16: case 0x17: case 0x18: case 0x19: case 0x1A: case 0x1B:
+          s.o2V.set(x, now);
+          break;
         case 0x0F: s.iat.set(x, now); break;
         case 0x06: s.stft.set(x, now); break;
         case 0x07: s.ltft.set(x, now); break;

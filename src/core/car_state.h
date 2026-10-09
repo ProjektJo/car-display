@@ -148,6 +148,7 @@ struct CarState {
   Val load{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};         // Motorlast % (0x04)
   Val maf{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};          // Luftmasse g/s (0x10)
   Val absLoad{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};      // absolute Last % (0x43): Luft je Hub, vom Steuergerät
+  Val o2V{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};          // Lambdasonde Spannung V (0x14–0x1B): im Schub fast 0
   Val fuelRate{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Kraftstoff l/h (0x5E)
   Val lambdaCmd{NAN, 0, cfg::PID_PERIOD_MEDIUM_MS};    // Soll-Lambda (0x44)
   Val coolant{NAN, 0, cfg::PID_PERIOD_SLOW_MS};        // Kühlmittel °C (0x05)
@@ -180,6 +181,7 @@ struct CarState {
   Val sinceFullL{NAN, 0, cfg::PID_PERIOD_FAST_MS};     // berechnet seit der letzten Vollbetankung
   uint16_t refuelSeq = 0;                               // automatische Tankerkennung: zählt hoch
   uint16_t refuelAskSeq = 0;                            // ohne 0x2F: "Getankt?" fragen (zählt hoch)
+  float tripSpeedRefKmh = NAN;                          // Ø Tempo der letzten Fahrten (Sport: Zeit gewonnen)
   Val tankPhysL{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // physischer Tankinhalt mit Reserve
   float refuelL = NAN;                                  // erkannte Liter
 

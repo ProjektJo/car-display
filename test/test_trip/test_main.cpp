@@ -6,13 +6,16 @@
 void setUp() {}
 void tearDown() {}
 
-// Abstellen bei 88 °C, Start bei 85 °C -> Fahrt läuft weiter; Start bei 60 °C -> neue Fahrt
+// Start ≥ 60 °C oder höchstens 5 °C kälter als beim Abstellen -> Fahrt läuft weiter, sonst neue
 void test_trip_end_by_coolant() {
   TEST_ASSERT_TRUE(trip::continues(88.0f, 85.0f));
-  TEST_ASSERT_FALSE(trip::continues(88.0f, 60.0f));
-  TEST_ASSERT_TRUE(trip::continues(88.0f, 84.0f));   // genau 4 °C kälter
-  TEST_ASSERT_FALSE(trip::continues(65.0f, 65.0f));  // beim Abstellen nicht warm
-  TEST_ASSERT_FALSE(trip::continues(NAN, 85.0f));
+  TEST_ASSERT_TRUE(trip::continues(88.0f, 60.0f));   // noch 60 °C: weiter
+  TEST_ASSERT_FALSE(trip::continues(88.0f, 55.0f));  // abgekühlt: neue Fahrt
+  TEST_ASSERT_TRUE(trip::continues(45.0f, 40.0f));   // kalt abgestellt, genau 5 °C kälter: weiter
+  TEST_ASSERT_FALSE(trip::continues(45.0f, 39.0f));
+  TEST_ASSERT_TRUE(trip::continues(NAN, 85.0f));     // ohne Wert beim Abstellen: warm genügt
+  TEST_ASSERT_FALSE(trip::continues(NAN, 50.0f));
+  TEST_ASSERT_FALSE(trip::continues(88.0f, NAN));
 }
 
 void test_record() {

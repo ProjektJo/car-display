@@ -1,5 +1,6 @@
 #include "elm_parser.h"
 
+#include <cmath>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -131,6 +132,7 @@ int pidDataLen(uint8_t pid) {
     case 0x01:
       return 4;
     case 0x03: case 0x0C: case 0x10: case 0x1F: case 0x21: case 0x31: case 0x42: case 0x43: case 0x44: case 0x5E:
+    case 0x14: case 0x15: case 0x16: case 0x17: case 0x18: case 0x19: case 0x1A: case 0x1B:
       return 2;
     case 0x04: case 0x05: case 0x06: case 0x07: case 0x08: case 0x09: case 0x0A: case 0x0B: case 0x0D:
     case 0x0E: case 0x0F: case 0x11: case 0x2F: case 0x33: case 0x45: case 0x46: case 0x47: case 0x49:
@@ -183,6 +185,10 @@ bool decodePid(uint8_t pid, const uint8_t* d, PidValue& out) {
       return true;
     case 0x42:
       out.value = (a * 256.0f + b) / 1000.0f;  // Steuergerät-Spannung V
+      return true;
+    case 0x14: case 0x15: case 0x16: case 0x17: case 0x18: case 0x19: case 0x1A: case 0x1B:
+      out.value = a / 200.0f;  // Lambdasonde Spannung V
+      out.value2 = b == 0xFF ? NAN : (b - 128.0f) * 100.0f / 128.0f;  // Kurzzeitkorrektur dieser Sonde %
       return true;
     case 0x43:
       out.value = (a * 256.0f + b) * 100.0f / 255.0f;  // absolute Last % (Luft je Hub, normiert)

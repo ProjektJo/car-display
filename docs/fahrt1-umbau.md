@@ -94,3 +94,15 @@ Inhalt (`tankPhysL`): Vollgetankt, Mischpreis und Tankmodell rechnen damit.
 **Helligkeit Auto (GPS):** Übergang über 3 h um Sonnenauf- und -untergang, in 5-%-Stufen.
 
 **Auto-Sprint:** wechselt nur noch von der Sport-Seite zur Sprint-Seite (gemessen wird weiterhin immer).
+
+## Etappe 1 aus dem Backlog (9.10.2026)
+- **F1** „Zeit gewonnen“ = Minuten gewonnen/verloren auf dieser Fahrt gegenüber dem Ø Tempo der letzten Fahrten
+  (gleitend, neue Fahrt zählt 30 %, `PersistState::tripSpeedRefKmh`). Sport-Tempo 72 px (`font_d72`).
+  Sprint: jedes Anfahren aus dem Stand zählt; Abbruch, wenn 50 km/h nicht mit im Mittel ≥ 2,0 m/s² erreicht werden
+  (nach 6,9 s), danach nur bei Tempoabfall > 3 km/h oder über 30 s. Die Anfahr-Erkennung bleibt nur für Auto-Sprint.
+- **A9** Sport-Hinweise kurz: „+2:30“ grün / „–1:10“ orange, Sprint „0–100 +0,4 s“, Beschleunigung „▲ 87 %“.
+- **F2** Schub: Gaspedal 0x49, sonst 0x4A/0x5A; Lambdasonde 0x14–0x1B (erste vorhandene) muss unter 0,15 V fallen;
+  Drosselklappe nur noch Rückfall mit Toleranz 1,5 + 2 Punkte je 1000 U/min über 1200.
+- **A3** Momentanverbrauch: Mittel der letzten 1,5 s, Anzeige höchstens 1×/s, Schub und Gas aus dem Schub sofort.
+- **A5** Fahrt & Tank: nach dem Fahrtende die letzte Fahrt mit Hinweis „letzte Fahrt“, bis die neue 0,1 km hat.
+- **A6** Fahrt läuft weiter, wenn das Kühlmittel beim Start ≥ 60 °C ist oder höchstens 5 °C kälter als beim Abstellen.

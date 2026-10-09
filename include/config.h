@@ -153,7 +153,10 @@ constexpr float KELVIN_OFFSET = 273.15f;
 constexpr float IAT_FALLBACK_C = 25.0f;
 constexpr float AIR_STP_G_PER_L = 1.184f;         // Luftdichte bei 25 °C, Bezug der absoluten Last (0x43)
 constexpr float L100_MIN_SPEED_KMH = 5.0f;        // l/100 km erst ab 5 km/h, darunter l/h (A7)
-constexpr uint32_t INSTANT_WINDOW_MS = 1000;      // Momentanverbrauch = 1-s-Mittel (A7)
+// Momentanverbrauch (9.10.2026, Jos Fassung): Mittel der letzten 1,5 s, Anzeige höchstens einmal je Sekunde;
+// Schub (0 l) und Gasgeben aus dem Schub sofort. Summen und Schnitte rechnen mit jedem Messwert.
+constexpr uint32_t INSTANT_WINDOW_MS = 1500;
+constexpr uint32_t INSTANT_SHOW_MS = 1000;
 // Schubabschaltung: 0x03 = 4 "open loop due to deceleration" (A7)
 constexpr uint8_t FUEL_SYS_DECEL_CUT = 4;
 // Ersatzregel ohne 0x03: Drosselklappe ≈ 0 % bei > 1200 U/min und > 15 km/h (A7).
@@ -163,6 +166,8 @@ constexpr float CUT_FALLBACK_MIN_RPM = 1200.0f;
 constexpr float CUT_FALLBACK_MIN_SPEED_KMH = 15.0f;
 constexpr float CUT_THROTTLE_MARGIN_PCT = 1.5f;
 constexpr float CUT_PEDAL_MARGIN_PCT = 2.0f;      // Pedal gilt bis 2 Prozentpunkte über "leer" als losgelassen
+constexpr float CUT_THROTTLE_PER_1000RPM_PCT = 2.0f;  // Drosselklappe: Toleranz +2 Punkte je 1000 U/min über 1200
+constexpr float CUT_O2_MAX_V = 0.15f;             // Lambdasonde im Schub: unter 0,15 V (sonst um 0,45 V pendelnd)
 
 // Selbstkalibrierung zwischen zwei Vollbetankungen (A7)
 constexpr float CAL_MIN_KM = 150.0f;
@@ -226,11 +231,16 @@ constexpr uint32_t SAVE_PERIOD_MS = 60000;        // laufende Summen alle 60 s .
 constexpr uint32_t SAVE_STANDSTILL_MS = 10000;    // ... und bei jedem Stillstand über 10 s
 constexpr uint16_t TRIP_LOG_SIZE = 50;            // Fahrtenbuch: letzte 50 Fahrten (A2 Nr. 17)
 constexpr uint16_t FILL_LOG_SIZE = 100;           // letzte 100 Tankfüllungen
-constexpr float TRIP_WARM_C = 70.0f;              // Motor beim Abstellen warm ab 70 °C ...
-constexpr float TRIP_PAUSE_MAX_DROP_C = 4.0f;     // ... und beim Start höchstens 4 °C kälter = kurze Pause
+// Fahrt läuft weiter (9.10.2026, Jos Fassung): Kühlmittel beim Start ≥ 60 °C ODER höchstens 5 °C kälter als
+// beim Abstellen; sonst neue Fahrt. Manuell beenden bleibt (Menü).
+constexpr float TRIP_WARM_C = 60.0f;
+constexpr float TRIP_PAUSE_MAX_DROP_C = 5.0f;
 constexpr uint32_t TRIP_ENGINE_OFF_END_MS = 5UL * 60 * 1000;  // Strom bleibt an: 5 min ohne Motor = Fahrtende
 // ANNAHME: Fahrten unter 100 m (z. B. nur Zündung an) kommen nicht ins Fahrtenbuch.
 constexpr float TRIP_MIN_RECORD_KM = 0.1f;
+// "Zeit gewonnen" (Sport): Ø Tempo der letzten Fahrten, gleitend; die neue Fahrt zählt 30 %
+constexpr float TRIP_REF_MIN_KM = 1.0f, TRIP_REF_MIN_S = 120.0f, TRIP_REF_WEIGHT = 0.3f;
+constexpr float GAIN_NEUTRAL_S = 10.0f;            // darunter grau statt grün/orange
 
 // ---------------------------------------------------------------------------
 // Gang und Schaltempfehlung (A6 Gänge, A9)
@@ -344,10 +354,11 @@ constexpr float SPRINT_LAUNCH_KMH_S = 7.2f;       // ... oder im Schnitt ≥ 7,2
 constexpr uint32_t SPRINT_LAUNCH_MIN_MS = 1000;   // ... gemessen frühestens 1 s nach dem Anfahren
 constexpr float SPRINT_80_ACCEL_MS2 = 1.5f;       // 80–120 startet auch ohne Pedal ab 1,5 m/s² bei 80 km/h
 constexpr float SPRINT_ABORT_PEDAL_PCT = 50.0f;   // Auto-Sprint: zurück, wenn das Gas 2 s unter 50 % liegt
+// Messung (9.10.2026, Jos Fassung): jedes Anfahren aus dem Stand zählt; Abbruch, wenn die mittlere Beschleunigung
+// seit dem Start bis 50 km/h unter 2,0 m/s² liegt, danach nur bei Tempoabfall oder über 30 s
+constexpr float SPRINT_MIN_MEAN_ACCEL_TO50_MS2 = 2.0f;
 constexpr float SPRINT_ABORT_DROP_KMH = 3.0f;     // Abbruch: Tempo fällt um mehr als 3 km/h ...
-constexpr uint32_t SPRINT_MAX_MS = 30000;         // ... oder die Messung dauert länger als 30 s ...
-constexpr float SPRINT_MIN_ACCEL_MS2 = 0.4f;      // ... oder im Verlauf weniger als 0,4 m/s² über ...
-constexpr uint32_t SPRINT_ACCEL_WINDOW_MS = 3000; // ... die letzten 3 s (eine Schaltpause ist kürzer)
+constexpr uint32_t SPRINT_MAX_MS = 30000;         // ... oder die Messung dauert länger als 30 s
 constexpr uint32_t AUTO_SPRINT_RETURN_DONE_MS = 4000;  // zurück 4 s nach dem Ziel ...
 constexpr uint32_t AUTO_SPRINT_RETURN_LOW_MS = 2000;   // ... 2 s nachdem das Gas unter 50 % fällt ...
 constexpr uint32_t AUTO_SPRINT_NOT_RUNNING_MS = 3000;  // ... wenn 3 s nach dem Wechsel keine Messung läuft ...

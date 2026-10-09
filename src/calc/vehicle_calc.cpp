@@ -113,6 +113,11 @@ void VehicleCalc::finishTrip() {
     hasTripRecord_ = true;
     st_.lastTrip = tripRecord_;  // Start-Karte beim nächsten Einschalten
     st_.hasLastTrip = 1;
+    // Ø Tempo der letzten Fahrten (gleitend: neue Fahrt zählt 30 %), nur Fahrten ab 1 km und 2 min
+    if (st_.trip.km >= cfg::TRIP_REF_MIN_KM && st_.trip.durationS >= cfg::TRIP_REF_MIN_S) {
+      const float v = static_cast<float>(st_.trip.km / (st_.trip.durationS / 3600.0));
+      st_.tripSpeedRefKmh = st_.tripSpeedRefKmh > 0 ? st_.tripSpeedRefKmh + cfg::TRIP_REF_WEIGHT * (v - st_.tripSpeedRefKmh) : v;
+    }
   }
   st_.trip.active = 0;
   saveNow_ = true;
@@ -516,6 +521,7 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
   in.throttlePct = s.throttle.get(nowMs);
   in.pedalPct = s.pedal.get(nowMs);
   in.pedalClosedPct = pedalClosed_;
+  in.o2V = s.o2V.get(nowMs);
 
   const fuel::Source src = fuel::chooseSource(profile_.fuel, li.pidSupported(0x5E), li.pidSupported(0x10),
                                               li.pidSupported(0x0B), li.pidSupported(0x0C), li.pidSupported(0x43),
@@ -624,7 +630,7 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
 
   stepEco(s, nowMs, dtS, engineOn, cut, lph, fuelKnown ? dkm : 0.0f, fuelKnown ? dl : 0.0f);
 
-  // Momentanverbrauch: 1-s-Fenster
+  // Momentanverbrauch: Fenster der letzten INSTANT_WINDOW_MS (16 Schritte à 100 ms reichen für 1,5 s)
   if (std::isnan(lph)) {
     for (int i = 0; i < WIN; i++) winDt_[i] = 0;  // Lücke: ältere Werte gelten nicht mehr als "momentan"
   } else {
@@ -647,12 +653,25 @@ void VehicleCalc::updateOutputs(const CarState& s, uint32_t nowMs, float dtS) {
     l += winLph_[i];
     if (std::isnan(winSpeed_[i])) speedOk = false; else v += winSpeed_[i];
   }
+  float lph = NAN, l100 = NAN;
   if (t > 0) {
-    out_.instLph = out_.fuelCut ? 0.0f : l / t;
+    lph = out_.fuelCut ? 0.0f : l / t;
     // Tempo mit dem km-Faktor (GPS bzw. Tempo-Abgleich), wie die Strecke
-    out_.instL100 = speedOk ? fuel::litersPer100(out_.instLph, v / t * profile_.kmFactor) : NAN;
-  } else {
-    out_.instLph = out_.instL100 = NAN;
+    l100 = speedOk ? fuel::litersPer100(lph, v / t * profile_.kmFactor) : NAN;
+  }
+  // Anzeige ruhig: höchstens einmal je Sekunde neu; Wechsel in den Schub und aus dem Schub sofort.
+  // Aus dem Schub zählt nur der jüngste Schritt, sonst zöge das Mittel die Nullen des Schubs mit.
+  const bool cutChanged = out_.fuelCut != instCutShown_;
+  if (cutChanged || !instShownAt_ || nowMs - instShownAt_ >= cfg::INSTANT_SHOW_MS || std::isnan(out_.instLph)) {
+    if (cutChanged && !out_.fuelCut && winDt_[winHead_] > 0) {
+      lph = winLph_[winHead_] / winDt_[winHead_];
+      const float sp = winSpeed_[winHead_] / winDt_[winHead_];
+      l100 = std::isnan(sp) ? NAN : fuel::litersPer100(lph, sp * profile_.kmFactor);
+    }
+    out_.instLph = lph;
+    out_.instL100 = l100;
+    instShownAt_ = nowMs ? nowMs : 1;
+    instCutShown_ = out_.fuelCut;
   }
 
   out_.avg1 = st_.ring1.l100();

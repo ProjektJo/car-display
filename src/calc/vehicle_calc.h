@@ -147,6 +147,8 @@ class VehicleCalc {
   uint32_t detectSince_ = 0;     // Motorstart: Füllstand wird gemittelt
   bool detectDone_ = true;       // erst nach dem ersten Motorstart prüfen
   bool askPending_ = false;      // ohne 0x2F: nach dem Start einmal "Getankt?" prüfen
+  uint32_t instShownAt_ = 0;     // Momentanverbrauch zuletzt für die Anzeige übernommen
+  bool instCutShown_ = false;
   uint32_t askSince_ = 0;
   double detectSum_ = 0;
   uint32_t detectN_ = 0;

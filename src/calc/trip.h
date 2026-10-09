@@ -58,8 +58,8 @@ static_assert(sizeof(TripRecord) == 64, "Fahrtdatensatz soll 64 Byte haben");
 
 TripRecord toRecord(const TripState& t, uint8_t profileId);
 
-// Liegt eine kurze Pause vor, läuft die Fahrt beim nächsten Start weiter (A8, ohne GPS):
-// Motor beim Abstellen warm (≥ 70 °C) und beim Start höchstens 4 °C kälter. Fehlt ein Wert: neue Fahrt.
+// Liegt eine kurze Pause vor, läuft die Fahrt beim nächsten Start weiter (ohne GPS):
+// Kühlmittel beim Start ≥ 60 °C oder höchstens 5 °C kälter als beim Abstellen. Ohne Wert beim Start: neue Fahrt.
 bool continues(float coolantAtStopC, float coolantAtStartC);
 
 // Tankfüllung (A8): Nummer, Datum, km seit der letzten Füllung, Liter, Preis, Ø, Kosten je 100 km

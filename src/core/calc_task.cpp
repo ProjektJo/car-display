@@ -161,6 +161,7 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
       s.refuelL = o.refuelL;
     }
     if (active) s.refuelAskSeq = o.refuelAskSeq;
+    s.tripSpeedRefKmh = active && vc.state().tripSpeedRefKmh > 0 ? vc.state().tripSpeedRefKmh : NAN;
     put(s.tankPhysL, o.tankPhysL);
     s.gear = active ? o.gear : eco::GEAR_NONE;
     s.shiftAdvice = active && o.shiftAdvice;

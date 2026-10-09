@@ -52,15 +52,6 @@ void SprintMeter::result(Kind k, float s, float& best) {
   }
 }
 
-float SprintMeter::speedAgo(uint32_t t, uint32_t sinceMs) const {
-  // jüngste Probe, die mindestens sinceMs alt ist
-  for (int k = 1; k <= histCount_; k++) {
-    const int i = (histHead_ - k + HIST) % HIST;
-    if (t - histT_[i] >= sinceMs) return histV_[i];
-  }
-  return NAN;
-}
-
 void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
   if (std::isnan(v)) return;
   const bool standing = v < cfg::SPRINT_STAND_KMH;
@@ -73,17 +64,9 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
     return prevT_ + static_cast<uint32_t>((f < 0 ? 0 : (f > 1 ? 1 : f)) * (t - prevT_));
   };
   const bool pedalHigh = !std::isnan(pedal) && pedal >= cfg::SPRINT_PEDAL_PCT;
-  histT_[histHead_] = t;
-  histV_[histHead_] = v;
-  histHead_ = (histHead_ + 1) % HIST;
-  if (histCount_ < HIST) histCount_++;
-  // Beschleunigung der letzten 3 s zu schwach (Jo: am Anfang mitzählen, im Verlauf abbrechen)
-  const float vAgo = speedAgo(t, cfg::SPRINT_ACCEL_WINDOW_MS);
-  const bool weak = !std::isnan(vAgo) &&
-                    (v - vAgo) / 3.6f / (cfg::SPRINT_ACCEL_WINDOW_MS / 1000.0f) < cfg::SPRINT_MIN_ACCEL_MS2;
 
-  // --- Sprint aus dem Stand erkennen: ≥ 1 s gestanden, dann spätestens 3 s nach dem Anfahren
-  //     Gaspedal ≥ 80 % des Bereichs oder im Schnitt ≥ 9 km/h je s seit dem Anfahren (A10, geändert)
+  // --- Kräftiges Anfahren erkennen (nur für den Seitenwechsel Auto-Sprint): ≥ 1 s gestanden, dann spätestens
+  //     3 s nach dem Anfahren Gaspedal ≥ 80 % des Bereichs oder im Schnitt ≥ 7,2 km/h je s
   if (standing) {
     if (!standSince_) standSince_ = t ? t : 1;
     leftAt_ = 0;
@@ -102,9 +85,11 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
     launchSeq_++;
   }
 
-  // --- 0–50 und 0–100: Aufzeichnung (Live-Kurve) ab jedem Losrollen, gültig erst mit erkanntem Sprint
+  // --- 0–50 und 0–100 (9.10.2026, Jos Fassung): jedes Anfahren aus dem Stand zählt. Abbruch, wenn die mittlere
+  //     Beschleunigung seit dem Start bis 50 km/h unter 2,0 m/s² liegt (50 km/h nicht nach 6,9 s erreicht),
+  //     danach nur bei Tempoabfall oder über 30 s.
   if ((state_ == State::Ready || state_ == State::Done) && wasStanding && !standing) {
-    state_ = State::Waiting;
+    state_ = State::Running;
     startMs_ = prevT_;  // Startzeit = letzte Messung im Stand (A10: Tempo verlässt 0)
     vTop_ = v;
     t50_ = NAN;
@@ -115,10 +100,9 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
     if (v > vTop_) vTop_ = v;
     cur_.add((t - startMs_) / 1000.0f, v > 100 ? 100 : v);
     if (std::isnan(t50_) && v >= 50) t50_ = (cross(50) - startMs_) / 1000.0f;
-    // Sprint nur innerhalb der ersten 3 s nach dem Anfahren; danach bleibt es eine Live-Kurve
-    if (state_ == State::Waiting && launch && t - startMs_ <= cfg::SPRINT_ARM_AFTER_LEAVE_MS + 200) state_ = State::Running;
+    const float maxTo50S = 50.0f / 3.6f / cfg::SPRINT_MIN_MEAN_ACCEL_TO50_MS2;
     const bool drop = v < vTop_ - cfg::SPRINT_ABORT_DROP_KMH, slow = t - startMs_ > cfg::SPRINT_MAX_MS,
-               weakNow = weak && t - startMs_ >= cfg::SPRINT_ACCEL_WINDOW_MS;
+               weakNow = std::isnan(t50_) && (t - startMs_) / 1000.0f > maxTo50S;
     const bool over = drop || slow || weakNow;
     if (over) abortReason_ = drop ? 1 : (slow ? 2 : 3);
     if (state_ == State::Running) {
@@ -158,8 +142,7 @@ void SprintMeter::update(uint32_t t, float v, float pedal, float accel) {
       last80120_ = (cross(120) - start80_) / 1000.0f;
       run80_ = false;
       result(Kind::S80120, last80120_, best_.s80120);
-    } else if (v < vTop80_ - cfg::SPRINT_ABORT_DROP_KMH || t - start80_ > cfg::SPRINT_MAX_MS ||
-               (weak && t - start80_ >= cfg::SPRINT_ACCEL_WINDOW_MS)) {
+    } else if (v < vTop80_ - cfg::SPRINT_ABORT_DROP_KMH || t - start80_ > cfg::SPRINT_MAX_MS) {
       run80_ = false;
     }
   }

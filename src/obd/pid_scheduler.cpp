@@ -30,19 +30,25 @@ void PidScheduler::reset(const uint8_t supported[32], bool can, uint8_t maxPerRe
   itemCount_ = 0;
   roundLen_ = roundPos_ = 0;
 
-  // Gaspedal 0x49, sonst Drosselklappe 0x11 (A7 schnell, A10 Sprint)
-  const bool hasPedal = this->supported(0x49);
+  // Gaspedal 0x49, sonst 0x4A bzw. 0x5A (relatives Pedal), sonst Drosselklappe 0x11 (A7 schnell, A10 Sprint)
+  const uint8_t pedalPid = this->supported(0x49) ? 0x49 : this->supported(0x4A) ? 0x4A : this->supported(0x5A) ? 0x5A : 0;
+  const bool hasPedal = pedalPid != 0;
+  // Lambdasonde (Schmalband, Spannung): erste vorhandene von 0x14–0x1B bestätigt den Schub (fällt auf fast 0 V)
+  uint8_t o2Pid = 0;
+  for (uint8_t p = 0x14; p <= 0x1B && !o2Pid; p++)
+    if (this->supported(p)) o2Pid = p;
 
   // schnell: jede Runde (A7)
   add(0x0D, PidClass::Fast, true);   // Tempo
   add(0x0C, PidClass::Fast, true);   // Drehzahl
   add(0x0B, PidClass::Fast, false);  // Saugrohrdruck
   if (hasPedal) {
-    add(0x49, PidClass::Fast, true);
+    add(pedalPid, PidClass::Fast, true);
   } else {
     add(0x11, PidClass::Fast, true);
   }
   add(0x5E, PidClass::Fast, false);  // Kraftstoff l/h, falls das Auto ihn liefert (Verbrauch Quelle 1)
+  if (o2Pid) add(o2Pid, PidClass::Fast, false);  // Schub-Bestätigung (9.10.2026)
   // Verbrauchsquelle 2 bzw. 3 schnell abfragen, damit der Momentanverbrauch mitkommt (7.10.2026)
   const bool fuelRate = this->supported(0x5E), maf = this->supported(0x10);
   if (!fuelRate && maf) add(0x10, PidClass::Fast, false);
