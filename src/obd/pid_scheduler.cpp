@@ -27,6 +27,8 @@ void PidScheduler::reset(const uint8_t supported[32], bool can, uint8_t maxPerRe
   can_ = can;
   maxPer_ = can ? (maxPerRequest < 1 ? 1 : (maxPerRequest > 8 ? 8 : maxPerRequest)) : 1;
   sprint_ = false;
+  cutWatch_ = false;
+  o2Item_ = -1;
   itemCount_ = 0;
   roundLen_ = roundPos_ = 0;
 
@@ -48,7 +50,10 @@ void PidScheduler::reset(const uint8_t supported[32], bool can, uint8_t maxPerRe
     add(0x11, PidClass::Fast, true);
   }
   add(0x5E, PidClass::Fast, false);  // Kraftstoff l/h, falls das Auto ihn liefert (Verbrauch Quelle 1)
-  if (o2Pid) add(o2Pid, PidClass::Fast, false);  // Schub-Bestätigung (9.10.2026)
+  if (o2Pid) {
+    add(o2Pid, PidClass::Fast, false);  // Schub-Bestätigung (9.10.2026)
+    if (itemCount_ > 0 && items_[itemCount_ - 1].pid == o2Pid) o2Item_ = itemCount_ - 1;
+  }
   // Verbrauchsquelle 2 bzw. 3 schnell abfragen, damit der Momentanverbrauch mitkommt (7.10.2026)
   const bool fuelRate = this->supported(0x5E), maf = this->supported(0x10);
   if (!fuelRate && maf) add(0x10, PidClass::Fast, false);
@@ -84,6 +89,13 @@ void PidScheduler::buildRound(uint32_t nowMs) {
     it.lastMs = nowMs;
     it.never = false;
     round_[roundLen_++] = static_cast<uint8_t>(i);
+  }
+  // Schub möglich: Lambda zusätzlich vorn (nach Tempo und Drehzahl), so ist sie etwa doppelt so oft frisch.
+  // Nur einzeln abfragende Protokolle (KWP, ältere): auf CAN ist die Runde ohnehin kurz.
+  if (cutWatch_ && !can_ && !sprint_ && o2Item_ >= 0 && roundLen_ >= 2 && roundLen_ < MAX_ITEMS + 1) {
+    for (int j = roundLen_; j > 2; j--) round_[j] = round_[j - 1];
+    round_[2] = static_cast<uint8_t>(o2Item_);
+    roundLen_++;
   }
 }
 

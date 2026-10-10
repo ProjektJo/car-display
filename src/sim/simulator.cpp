@@ -29,14 +29,15 @@ constexpr Segment CYCLE[] = {
     {10, 97, Mode::Sail},         // 10 Segeln: ausgekuppelt, Tempo hält sich fast
     {15, 90, Mode::Cruise},       // 11
     {12, 60, Mode::Overrun},      // 12 Schub
-    {15, 60, Mode::Cruise},       // 13
-    {12, 0, Mode::CoastBrake},    // 14 ausgekuppelt bremsen bis zum Stand
-    {65, 0, Mode::Idle},          // 15 langer Stand (Hinweis "Stand · Motor aus?" nach 60 s)
+    {7, 42, Mode::EngineBrake},   // 13 Motorbremse im 2. Gang (60 km/h = 4500 U/min)
+    {15, 60, Mode::Cruise},       // 14
+    {12, 0, Mode::CoastBrake},    // 15 ausgekuppelt bremsen bis zum Stand
+    {65, 0, Mode::Idle},          // 16 langer Stand (Hinweis "Stand · Motor aus?" nach 60 s)
 };
 constexpr int CYCLE_LEN = sizeof(CYCLE) / sizeof(CYCLE[0]);
 constexpr int SEG_REFUEL = 7;       // Abschnitt, in dem getankt wird
 constexpr int SEG_AFTER_SPRINT = 9; // nach dem Sprint weiter mit Konstantfahrt 100 km/h
-constexpr int SEG_LONG_STAND = 15;  // langer Stand: hier startet kein Sprint (Hinweis "Stand" prüfbar)
+constexpr int SEG_LONG_STAND = 16;  // langer Stand: hier startet kein Sprint (Hinweis "Stand" prüfbar)
 
 // Getriebe: km/h je 1000 U/min (A6, Renault Modus grob)
 constexpr float GEAR_K[] = {7.3f, 13.2f, 19.5f, 26.0f, 32.0f};
@@ -54,6 +55,11 @@ constexpr float CLUTCH_BELOW_KMH = 15;       // darunter wird ausgekuppelt
 constexpr float STAND_BELOW_KMH = 3;
 constexpr float ACCEL_CURVE_EXP = 1.6f;      // Beschleunigung lässt mit dem Tempo nach (Vorschau)
 constexpr float SPRINT_START_MAX_KMH = 0.5f; // Sprint beginnt nur aus dem Stand
+constexpr float SHIFT_PAUSE_S = 0.8f;        // Schaltpause beim Beschleunigen: Gas weg, Kupplung getreten
+constexpr float SHIFT_RPM_DROP_PER_S = 1800; // ausgekuppelt fällt die Drehzahl so schnell
+constexpr int ENGINE_BRAKE_GEAR = 1;         // Motorbremse im 2. Gang (Index)
+// Lambdasonde (Schmalband): geregelt pendelnd um 0,45 V, im Schub fast 0 V, kalt (offen) fett
+constexpr float O2_MID_V = 0.45f, O2_SWING_V = 0.35f, O2_CUT_V = 0.05f, O2_COLD_V = 0.7f, O2_HZ = 1.3f;
 
 // Fahrer: Gaspedal % (wie in der Vorschau)
 constexpr float PEDAL_ACCEL = 46, PEDAL_ACCEL_VAR = 4;
@@ -235,6 +241,11 @@ void DriveSim::stepDriving(float dtS) {
   const float wobble = clampf(pedalWobble_ * PEDAL_WOBBLE_GAIN, -1.0f, 1.0f);
   uint8_t gear = 0;
   bool overrunCut = false;
+  bool shifting = false;
+  if (mode_ != Mode::Accel) {
+    shiftLeft_ = 0;
+    accelGear_ = 0;
+  }
 
   if (mode_ == Mode::Sprint) {
     sprintT_ += dtS;
@@ -278,10 +289,30 @@ void DriveSim::stepDriving(float dtS) {
     } else if (mode_ == Mode::Accel) {
       int g = 0;
       while (g < GEARS - 1 && speed_ / GEAR_K[g] * 1000.0f > RPM_UPSHIFT_ACCEL) g++;
-      gear = static_cast<uint8_t>(g + 1);
-      rpm = std::max(RPM_FLOOR_ACCEL, speed_ / GEAR_K[g] * 1000.0f);
-      pedal = PEDAL_ACCEL + wobble * PEDAL_ACCEL_VAR;
-      lph = LPH_ACCEL_BASE + LPH_ACCEL_PER_KMH * speed_;
+      // Hochschalten: kurz Gas weg und ausgekuppelt, die Drehzahl fällt frei (kein Schub)
+      if (g > accelGear_ && shiftLeft_ <= 0) {
+        shiftLeft_ = SHIFT_PAUSE_S;
+        shiftRpm_ = std::max(RPM_FLOOR_ACCEL, speed_ / GEAR_K[accelGear_] * 1000.0f);
+      }
+      accelGear_ = g;
+      if (shiftLeft_ > 0) {
+        shiftLeft_ -= dtS;
+        shiftRpm_ = std::max(idleRpm, shiftRpm_ - SHIFT_RPM_DROP_PER_S * dtS);
+        gear = 0;
+        shifting = true;
+        rpm = shiftRpm_;
+        pedal = 0;
+        lph = LPH_SHIFT;
+      } else {
+        gear = static_cast<uint8_t>(g + 1);
+        rpm = std::max(RPM_FLOOR_ACCEL, speed_ / GEAR_K[g] * 1000.0f);
+        pedal = PEDAL_ACCEL + wobble * PEDAL_ACCEL_VAR;
+        lph = LPH_ACCEL_BASE + LPH_ACCEL_PER_KMH * speed_;
+      }
+    } else if (mode_ == Mode::EngineBrake) {
+      gear = ENGINE_BRAKE_GEAR + 1;
+      rpm = speed_ / GEAR_K[ENGINE_BRAKE_GEAR] * 1000.0f;
+      overrunCut = true;
     } else {  // Cruise, Overrun
       int g = GEARS - 1;
       while (g > 0 && speed_ / GEAR_K[g] * 1000.0f < RPM_MIN_CRUISE) g--;
@@ -304,6 +335,11 @@ void DriveSim::stepDriving(float dtS) {
 
   out_.engineOn = true;
   out_.gear = gear;
+  out_.shifting = shifting;
+  o2Phase_ += dtS * O2_HZ * 6.2832f;
+  if (o2Phase_ > 6.2832f) o2Phase_ -= 6.2832f;
+  out_.o2V = overrunCut ? O2_CUT_V + rnd(0.02f)
+                        : (coolant_ < CLOSED_LOOP_FROM_C ? O2_COLD_V + rnd(0.05f) : O2_MID_V + O2_SWING_V * std::sin(o2Phase_));
   out_.speedKmh = std::max(0.0f, speed_ + (speed_ > STAND_BELOW_KMH ? rnd(SPEED_NOISE_KMH) : 0.0f));
   out_.rpm = rpm;
   out_.pedalPct = clampf(pedal, 0, 100);

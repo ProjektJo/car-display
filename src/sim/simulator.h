@@ -1,7 +1,8 @@
 // Simulierte Fahrt für die Umgebung "simulator" (M, Abschnitt Simulator; A13).
 //
 // Liefert Rohwerte, wie sie ein Auto über OBD meldet: Kaltstart, Stadt, Landstraße bis
-// 100 km/h, Schub, Ampel-Leerlauf, Segeln, ausgekuppeltes Bremsen, ein Fehlercode (P0171),
+// 100 km/h, Schub, Motorbremse im 2. Gang bei hoher Drehzahl, Schaltpausen beim Beschleunigen (Gas weg,
+// ausgekuppelt), Ampel-Leerlauf, Segeln, ausgekuppeltes Bremsen, ein Fehlercode (P0171),
 // ein Tankvorgang mit Motor aus und eine Vollgas-Sequenz aus dem Stand mit Schaltpausen.
 // Das Fahrzeug entspricht dem Renault Modus 1.2 (Saugrohrdruck statt MAF, kein 0x5E).
 // Der Saugrohrdruck ist so gewählt, dass die Speed-Density-Rechnung (A7) den
@@ -29,10 +30,12 @@ struct SimOutput {
   bool mil = false;        // 0x01
   uint8_t dtcCount = 0;    // 0x01
   uint16_t dtc = 0;        // gespeicherter Code, 0x0171 = P0171
+  float o2V = 0.45f;       // 0x15 Lambdasonde: im Schub fast 0 V, geregelt um 0,45 V pendelnd, kalt fett
 
   // Zur Kontrolle (kommt nicht über OBD): wahrer Verbrauch und Gang der Simulation
   float trueLph = 0;
   uint8_t gear = 0;        // 0 = Leerlauf/ausgekuppelt
+  bool shifting = false;   // Schaltpause: Gas weg, Kupplung getreten (kein Schub)
 };
 
 class DriveSim {
@@ -42,6 +45,7 @@ class DriveSim {
     Accel,       // normales Beschleunigen
     Cruise,      // konstant bzw. leicht ändernd, im Gang
     Overrun,     // Schub: im Gang rollen, Gas weg, Schubabschaltung
+    EngineBrake, // Schub mit Motorbremse im 2. Gang (hohe Drehzahl, z. B. bergab)
     Sail,        // Segeln: ausgekuppelt rollen, Tempo hält sich fast
     CoastBrake,  // ausgekuppelt bremsen (Anlass für den Tipp "Gang rein")
     EngineOff,   // Motor aus (Tanken)
@@ -101,5 +105,9 @@ class DriveSim {
   uint8_t sprintGear_ = 1;
   float nextAutoSprint_;
   float pedalWobble_ = 0;       // langsames Zittern des Fußes
+  int accelGear_ = 0;           // Gang beim Beschleunigen (Index), für die Schaltpausen
+  float shiftLeft_ = 0;         // Rest der Schaltpause s
+  float shiftRpm_ = 0;          // Drehzahl in der Schaltpause (fällt ausgekuppelt)
+  float o2Phase_ = 0;
   SimOutput out_;
 };

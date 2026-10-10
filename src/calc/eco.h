@@ -29,7 +29,7 @@ float ratioK(float speedKmh, float rpm);
 int findGears(const GearHistogram& h, float* out, int max);
 
 // Index des passenden Gangs (± 6 %), -1 = keiner
-int matchGear(const float* gears, int count, float k);
+int matchGear(const float* gears, int count, float k, float tol = cfg::GEAR_MATCH_TOL);
 
 // Anzeige-Nummer eines Gangs: Fehlt der 1. Gang (kleinster Wert > 10,5), zählt es ab 2
 int gearNumber(const float* gears, int count, int index);

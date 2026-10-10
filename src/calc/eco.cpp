@@ -85,10 +85,10 @@ int findGears(const GearHistogram& h, float* out, int max) {
   return count;
 }
 
-int matchGear(const float* gears, int count, float k) {
+int matchGear(const float* gears, int count, float k, float tol) {
   if (std::isnan(k)) return -1;
   int best = -1;
-  float bestDev = cfg::GEAR_MATCH_TOL;
+  float bestDev = tol;
   for (int i = 0; i < count; i++) {
     if (!(gears[i] > 0)) continue;
     const float dev = std::fabs(k / gears[i] - 1.0f);

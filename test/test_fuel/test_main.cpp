@@ -1,5 +1,6 @@
 // Verbrauch, Kalibrierung, Tankmodell, Mischpreis, Preis-Eingabe, Reichweite (M Prüfwerte, A7)
 #include "calc/fuel.h"
+#include "calc/fuel_cut.h"
 
 #include <unity.h>
 
@@ -92,6 +93,96 @@ void test_fuel_cut() {
   in.o2V = NAN;
 }
 
+// Schub genauer (F7): Einschaltverzug 0,4 s, aus sofort beim Gas, Gang ± 5 %, Lambda nur frisch,
+// keine Obergrenze für die Drehzahl
+static const float GEARS[] = {7.3f, 13.2f, 19.5f, 26.0f, 32.0f};
+
+static fuel::CutDetector::In cutIn(float speed, float rpm, float pedal, uint32_t rpmT) {
+  fuel::CutDetector::In x;
+  x.in.speedKmh = speed;
+  x.in.rpm = rpm;
+  x.in.pedalPct = pedal;
+  x.in.pedalClosedPct = 0;
+  x.rpmT = rpmT;
+  x.gears = GEARS;
+  x.gearCount = 5;
+  return x;
+}
+
+void test_cut_detector() {
+  fuel::CutDetector d;
+  // 60 km/h im 3. Gang (k 19,5 -> 3077 U/min), Fuß weg: erst nach 0,4 s Schub
+  uint32_t t = 1000;
+  for (; t < 1300; t += 100) TEST_ASSERT_FALSE(d.step(cutIn(60, 3077, 0, t), t));
+  TEST_ASSERT_TRUE(d.watch());
+  TEST_ASSERT_TRUE(d.why() == fuel::CutDetector::Why::Waiting);
+  t += 100;
+  TEST_ASSERT_TRUE(d.step(cutIn(60, 3077, 0, t), t));
+  char buf[64];
+  d.describe(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("ja: Pedal 0 %, Gang 3, ohne Lambda", buf);
+  // Gas: sofort aus
+  t += 100;
+  TEST_ASSERT_FALSE(d.step(cutIn(60, 3077, 8, t), t));
+  TEST_ASSERT_TRUE(d.why() == fuel::CutDetector::Why::Gas);
+  // 0x03 = 4, aber Gas: kein Schub
+  fuel::CutDetector::In g = cutIn(60, 3077, 8, t);
+  g.hasFuelSys = true;
+  g.in.fuelSys = 4;
+  TEST_ASSERT_FALSE(d.step(g, t));
+
+  // Frische Lambda-Messung fett: kein Schub; ist sie älter als 0,5 s, entscheiden Pedal und Gang allein
+  d.reset();
+  t = 5000;
+  fuel::CutDetector::In x = cutIn(60, 3077, 0, t);
+  x.o2V = 0.7f;
+  x.o2AgeMs = 200;
+  for (int i = 0; i < 10; i++, t += 100) {
+    x.rpmT = t;
+    TEST_ASSERT_FALSE(d.step(x, t));
+  }
+  TEST_ASSERT_TRUE(d.why() == fuel::CutDetector::Why::Rich);
+  x.o2AgeMs = 800;
+  for (int i = 0; i < 4; i++, t += 100) {
+    x.rpmT = t;
+    d.step(x, t);
+  }
+  x.rpmT = t;
+  TEST_ASSERT_TRUE(d.step(x, t));
+  // frisch und mager: bestätigt
+  x.o2V = 0.05f;
+  x.o2AgeMs = 100;
+  t += 100;
+  x.rpmT = t;
+  TEST_ASSERT_TRUE(d.step(x, t));
+  d.describe(buf, sizeof(buf));
+  TEST_ASSERT_EQUAL_STRING("ja: Pedal 0 %, Gang 3, Lambda 0,05 V 0,1 s", buf);
+
+  // Passt zu keinem Gang (zwischen 3. und 4.): kein Schub
+  d.reset();
+  t = 9000;
+  for (int i = 0; i < 8; i++, t += 100) TEST_ASSERT_FALSE(d.step(cutIn(60, 2650, 0, t), t));
+  TEST_ASSERT_TRUE(d.why() == fuel::CutDetector::Why::NoGear);
+
+  // Hohe Drehzahl mit Motorbremse: 80 km/h im 2. Gang = 6060 U/min, keine Obergrenze
+  d.reset();
+  t = 12000;
+  bool on = false;
+  for (int i = 0; i < 6; i++, t += 100) on = d.step(cutIn(80, 6061, 0, t), t);
+  TEST_ASSERT_TRUE(on);
+
+  // Ohne gelernte Gänge: ausgekuppelt (Drehzahl fällt 1800 U/min je s bei gleichem Tempo) = kein Schub
+  d.reset();
+  t = 15000;
+  float rpm = 2900;
+  for (int i = 0; i < 8; i++, t += 100, rpm -= 180) {
+    fuel::CutDetector::In y = cutIn(40, rpm, 0, t);
+    y.gearCount = 0;
+    TEST_ASSERT_FALSE(d.step(y, t));
+  }
+  TEST_ASSERT_TRUE(d.why() == fuel::CutDetector::Why::Declutched);
+}
+
 // 4 km/h -> kein l/100-Wert (Anzeige l/h)
 void test_l100_min_speed() {
   TEST_ASSERT_FLOAT_IS_NAN(fuel::litersPer100(1.0f, 4.0f));
@@ -157,6 +248,7 @@ int main() {
   RUN_TEST(test_speed_density);
   RUN_TEST(test_source_order);
   RUN_TEST(test_fuel_cut);
+  RUN_TEST(test_cut_detector);
   RUN_TEST(test_l100_min_speed);
   RUN_TEST(test_calibration);
   RUN_TEST(test_calibration_invalid);

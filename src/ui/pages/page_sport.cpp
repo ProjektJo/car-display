@@ -194,6 +194,12 @@ class SportPage : public Page {
     gear_ = theme::label(gearRow_, &font_v24, false, fmt::NO_VALUE);
     lv_obj_t* gl = theme::label(gearRow_, &font_m12, true, "Gang");
     lv_obj_set_style_pad_bottom(gl, 4, 0);
+    // Drehzahl als Zahl neben dem Gang (Jos Wunsch: numerisch abschätzbar)
+    rpm_ = theme::label(gearRow_, &font_m20, false, fmt::NO_VALUE);
+    lv_obj_set_style_pad_left(rpm_, 6, 0);
+    lv_obj_set_style_pad_bottom(rpm_, 1, 0);
+    lv_obj_t* ru = theme::label(gearRow_, &font_m12, true, "U/min");
+    lv_obj_set_style_pad_bottom(ru, 4, 0);
     lv_obj_align(gearRow_, LV_ALIGN_TOP_MID, CX - BOARD_LCD_HOR_RES / 2, CY + 36);
 
     static const char* const LABELS[4] = {"Leistung", "Beschl.", "Gaspedal", "Saugrohr"};
@@ -248,6 +254,13 @@ class SportPage : public Page {
     setText(speed_, shownSpeed_, sizeof(shownSpeed_), t);
     values::text(values::Key::Gear, s, t, sizeof(t));
     setText(gear_, shownGear_, sizeof(shownGear_), t);
+    values::text(values::Key::Rpm, s, t, sizeof(t));
+    setText(rpm_, shownRpm_, sizeof(shownRpm_), t);
+    const uint32_t rc = values::value(values::Key::Rpm, s) > cfg::RPM_GAUGE_WARN ? theme::WARN : theme::TEXT;
+    if (rc != shownRpmColor_) {
+      shownRpmColor_ = rc;
+      lv_obj_set_style_text_color(rpm_, theme::c(rc), 0);
+    }
     const bool arrow = shiftSince_ && s.now - shiftSince_ >= cfg::SHIFT_ARROW_DELAY_MS && !s.fuelCut;
     if (arrow != shownArrow_) {
       shownArrow_ = arrow;
@@ -517,7 +530,13 @@ class SportPage : public Page {
     const float rpm = s.rpm.get(s.now);
     if (!std::isnan(rpm) && rpm > 0)
       arc(layer, cx, cy, A0, angleOf(rpm) + 0.5f, rpm > cfg::RPM_GAUGE_WARN ? theme::WARN : theme::ACCENT, LV_OPA_COVER, true);
-    // Skala ×1000
+    // Zwischenstriche alle 500 U/min (kurz), dazu die Skala ×1000
+    for (int k = 1; k <= 13; k += 2) {
+      const float ang = angleOf(k * 500.0f) * 3.14159265f / 180.0f;
+      const float c = std::cos(ang), sn = std::sin(ang);
+      line(layer, cx + std::lround((R + 1) * c), cy + std::lround((R + 1) * sn), cx + std::lround((R + 7) * c),
+           cy + std::lround((R + 7) * sn), theme::BG, 1);
+    }
     for (int k = 0; k <= 6; k++) {
       const float ang = angleOf(k * 1000.0f) * 3.14159265f / 180.0f;
       const float c = std::cos(ang), sn = std::sin(ang);
@@ -545,6 +564,9 @@ class SportPage : public Page {
   Bar bars_[4];
   char shownSpeed_[12] = "";
   char shownGear_[8] = "";
+  lv_obj_t* rpm_ = nullptr;
+  char shownRpm_[12] = "";
+  uint32_t shownRpmColor_ = 0xFFFFFFFF;
   char shownCompete_[48] = "";
   uint32_t shownCompeteColor_ = 0xFFFFFFFF;
   bool shownArrow_ = false;

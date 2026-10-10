@@ -161,6 +161,8 @@ struct CarState {
   Val fuelLph{NAN, 0, cfg::PID_PERIOD_FAST_MS};        // Momentanverbrauch l/h (1-s-Mittel)
   Val fuelL100{NAN, 0, cfg::PID_PERIOD_FAST_MS};       // Momentanverbrauch l/100 km, ab 5 km/h
   bool fuelCut = false;                                 // Schubabschaltung aktiv
+  bool cutWatch = false;                                // Fuß vom Gas: Lambda bevorzugt abfragen (obdTask)
+  char cutWhy[64] = "";                                 // Diagnose "Schub": Entscheidung mit Grund
   Val avg1{NAN, 0, cfg::PID_PERIOD_FAST_MS};           // Ø letzter Kilometer
   Val avg10{NAN, 0, cfg::PID_PERIOD_FAST_MS};          // Ø 10 km
   Val avg100{NAN, 0, cfg::PID_PERIOD_FAST_MS};         // Ø 100 km

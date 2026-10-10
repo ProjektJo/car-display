@@ -2,6 +2,7 @@
 // Tanken mit Kalibrierung, Fahrt weiter bzw. neu nach dem Start, Fahrtende ohne Motor, Speichern.
 #include "calc/vehicle_calc.h"
 
+#include <cmath>
 #include <cstring>
 #include <initializer_list>
 
@@ -234,6 +235,63 @@ void test_fuel_cut_zero() {
   TEST_ASSERT_EQUAL_FLOAT(0.0f, calc.out().instL100);
 }
 
+// Schub im Simulator (F7): ohne 0x03, mit Pedal (0x49) und Lambdasonde (0x15). Schaltpausen beim Beschleunigen
+// (Gas weg, ausgekuppelt, Drehzahl fällt) dürfen nie Schub sein; Schub im Gang und Motorbremse im 2. Gang bei
+// hoher Drehzahl müssen erkannt werden. Tempo kommt in ganzen km/h, die Lambdasonde nur alle 0,625 s.
+static void cutScenario(bool learned) {
+  DriveSim sim(11);
+  CarState s;
+  support(s.link, {0x05, 0x0B, 0x0C, 0x0D, 0x0F, 0x11, 0x15, 0x49});
+  Profile p = simProfile();
+  if (learned) {
+    const float k[] = {7.3f, 13.2f, 19.5f, 26.0f, 32.0f};
+    p.gearCount = 5;
+    for (int i = 0; i < 5; i++) p.gears[i] = k[i];
+  }
+  VehicleCalc calc;
+  calc.load(p, nullptr);
+  const float dt = 0.125f;
+  uint32_t now = 1;
+  int shiftSteps = 0, shiftCut = 0, brakeSteps = 0, brakeCut = 0, overSteps = 0, overCut = 0;
+  for (int i = 0; i < (int)(30 * 60 / dt); i++) {
+    sim.step(dt);
+    now += 125;
+    const SimOutput& o = sim.out();
+    s.speed.set(std::round(o.speedKmh), now);
+    s.rpm.set(o.rpm, now);
+    s.map.set(o.mapKpa, now);
+    s.throttle.set(o.throttlePct, now);
+    s.pedal.set(o.pedalPct, now);
+    s.iat.set(o.iatC, now);
+    s.coolant.set(o.coolantC, now);
+    if (i % 5 == 0) s.o2V.set(o.o2V, now);
+    calc.step(s, now, dt);
+    if (o.coolantC < 45 || !o.engineOn) continue;  // kalt: Sonde fett, Gemisch offen
+    const bool cut = calc.out().fuelCut;
+    if (o.shifting && o.speedKmh > 16 && o.rpm > 1250) {
+      shiftSteps++;
+      shiftCut += cut;
+    }
+    if (sim.mode() == DriveSim::Mode::EngineBrake) {
+      brakeSteps++;
+      brakeCut += cut;
+    }
+    if (sim.mode() == DriveSim::Mode::Overrun && o.gear > 0 && o.speedKmh > 17) {
+      overSteps++;
+      overCut += cut;
+    }
+  }
+  TEST_ASSERT_TRUE(shiftSteps > 50);
+  TEST_ASSERT_EQUAL_INT(0, shiftCut);
+  TEST_ASSERT_TRUE(brakeSteps > 100);
+  TEST_ASSERT_TRUE(brakeCut > 0.75f * brakeSteps);  // Runterschalten vorher: kurz "ausgekuppelt", dann 0,4 s Verzug
+  TEST_ASSERT_TRUE(overSteps > 100);
+  TEST_ASSERT_TRUE(overCut > 0.7f * overSteps);    // die Simulation schaltet im Schub sprunghaft herunter
+}
+
+void test_cut_sim_learned_gears() { cutScenario(true); }
+void test_cut_sim_without_gears() { cutScenario(false); }
+
 // Automatische Tankerkennung mit 0x2F (A7): Anstieg um mindestens 8 % beim Motorstart = getankt
 static void runLevel(VehicleCalc& calc, CarState& s, uint32_t& now, float rpm, float speed, float level, int steps) {
   for (int i = 0; i < steps; i++) {
@@ -400,6 +458,8 @@ int main() {
   RUN_TEST(test_trip_continues_after_restart);
   RUN_TEST(test_engine_off_and_save);
   RUN_TEST(test_fuel_cut_zero);
+  RUN_TEST(test_cut_sim_learned_gears);
+  RUN_TEST(test_cut_sim_without_gears);
   RUN_TEST(test_diesel_without_fuel_rate);
   RUN_TEST(test_refuel_detection);
   RUN_TEST(test_auto_goal);

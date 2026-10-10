@@ -60,10 +60,10 @@ lv_obj_t* menuPills[M_COUNT] = {};
 lv_obj_t* menuValues[M_COUNT] = {};
 char menuShown[M_COUNT][32] = {};
 
-enum DiagRow { ROW_VEHICLE, ROW_ADAPTER, ROW_PROTOCOL, ROW_VIN, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_BODY, ROW_RESET, ROW_SENSORS,
+enum DiagRow { ROW_VEHICLE, ROW_ADAPTER, ROW_PROTOCOL, ROW_VIN, ROW_RATE, ROW_PIDS, ROW_FUEL, ROW_CUT, ROW_BODY, ROW_RESET, ROW_SENSORS,
                ROW_IMU, ROW_EXPORT, ROW_COUNT };
 lv_obj_t* diagValues[ROW_COUNT] = {};
-char diagShown[ROW_COUNT][48] = {};
+char diagShown[ROW_COUNT][64] = {};
 
 // Dialog-Inhalte, die sich live ändern
 lv_obj_t* dlgValue[4] = {};
@@ -576,7 +576,7 @@ void openDiagnose() {
   memset(diagShown, 0, sizeof(diagShown));
 
   static const char* const KEYS[ROW_COUNT] = {"Fahrzeug", "Adapter", "Protokoll", "VIN", "Abfragen", "Unterstützte PIDs",
-                                              "Verbrauch aus", "Fahrzeugart", "Mittelwerte", "Sensoren",
+                                              "Verbrauch aus", "Schub", "Fahrzeugart", "Mittelwerte", "Sensoren",
                                               "Sensor neu einlernen", "Fahrten exportieren"};
   lv_obj_set_style_pad_row(card, 0, 0);
   lv_obj_t* title = lv_obj_get_child(card, 0);
@@ -721,6 +721,8 @@ void update(const CarSnapshot& s) {
   else
     snprintf(text, sizeof(text), "%s", fmt::NO_VALUE);
   setText(diagValues[ROW_FUEL], diagShown[ROW_FUEL], sizeof(diagShown[0]), text);
+  // Schub: Entscheidung mit Grund (Pedal, Gang, Lambda und ihr Alter), F7
+  setText(diagValues[ROW_CUT], diagShown[ROW_CUT], sizeof(diagShown[0]), s.cutWhy[0] ? s.cutWhy : fmt::NO_VALUE);
   // Fahrzeugart aus dem Profil (Menü → Fahrzeugart)
   const cfg::BodyType& body = cfg::BODY_TYPES[s.profile.body < cfg::BODY_TYPE_COUNT ? s.profile.body : 0];
   char mass[12];

@@ -55,13 +55,15 @@ void drainCommands() {
     if (c.type == CmdType::ReadDtc) wantDtcRead = true;
     if (c.type == CmdType::ClearDtc) wantDtcClear = true;
   }
-  bool sprint = false;
+  bool sprint = false, cutWatch = false;
   {
     CarState& s = carstate::lock();
     sprint = s.sprint.active;
+    cutWatch = s.cutWatch;
     carstate::unlock();
   }
   scheduler.setSprint(sprint);
+  scheduler.setCutWatch(cutWatch);
 }
 
 // Fehler anzeigen und mit wachsender Pause auf den nächsten Versuch warten (A7)

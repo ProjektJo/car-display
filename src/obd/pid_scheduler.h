@@ -28,6 +28,10 @@ class PidScheduler {
   }
   bool sprint() const { return sprint_; }
 
+  // Fuß vom Gas (Schub möglich): Lambdasonde zweimal je Runde abfragen, gleich nach Tempo und Drehzahl,
+  // damit die Schub-Bestätigung frisch ist (F7). Wirkt ab der nächsten Runde.
+  void setCutWatch(bool on) { cutWatch_ = on; }
+
   // Nächste Anfrage. Liefert immer etwas, solange überhaupt ein PID unterstützt wird
   // (sonst ATRV als einzige Abfrage).
   ObdRequest next(uint32_t nowMs);
@@ -59,9 +63,11 @@ class PidScheduler {
   bool can_ = false;
   uint8_t maxPer_ = 1;
   bool sprint_ = false;
+  bool cutWatch_ = false;
+  int o2Item_ = -1;                // Index der Lambdasonde in items_, -1 = keine
   Item items_[MAX_ITEMS] = {};
   int itemCount_ = 0;
-  uint8_t round_[MAX_ITEMS] = {};  // Indizes in items_ für die laufende Runde
+  uint8_t round_[MAX_ITEMS + 1] = {};  // Indizes in items_ für die laufende Runde (+1: Lambda doppelt)
   int roundLen_ = 0;
   int roundPos_ = 0;
 };

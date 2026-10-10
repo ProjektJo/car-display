@@ -117,6 +117,7 @@ void task(void*) {
       s.map.set(o.mapKpa, now);
       s.throttle.set(o.throttlePct, now);
       s.pedal.set(o.pedalPct, now);
+      s.o2V.set(o.o2V, now);
       if (medium) {
         s.iat.set(o.iatC, now);
         s.stft.set(o.stftPct, now);

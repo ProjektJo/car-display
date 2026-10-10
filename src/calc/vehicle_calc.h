@@ -7,6 +7,7 @@
 
 #include "calc/eco.h"
 #include "calc/fuel.h"
+#include "calc/fuel_cut.h"
 #include "calc/perf.h"
 #include "calc/persist.h"
 #include "calc/trip.h"
@@ -22,6 +23,8 @@ class VehicleCalc {
     float instLph = NAN;       // 1-s-Mittel
     float instL100 = NAN;      // ab 5 km/h, sonst NAN (Anzeige dann l/h)
     bool fuelCut = false;
+    bool cutWatch = false;     // Fuß vom Gas über 1200 U/min: Lambda bevorzugt abfragen
+    char cutWhy[64] = "";     // Diagnose "Schub": Entscheidung mit Grund
     float avg1 = NAN, avg10 = NAN, avg100 = NAN;
     float avgTank = NAN, avgTrip = NAN, avgProfile = NAN, avgFills = NAN;
     float tankL = NAN;         // nutzbar (Anzeige): physisch minus Reserve, nicht unter 0
@@ -121,6 +124,7 @@ class VehicleCalc {
   bool profileChanged_ = false;
 
   float throttleClosed_ = NAN;   // kleinster Drosselklappenwert seit dem Laden
+  fuel::CutDetector cut_;
   uint32_t engineOffSinceMs_ = 0;
   uint32_t standstillSinceMs_ = 0;
   bool standstillSaved_ = false;

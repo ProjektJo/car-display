@@ -168,6 +168,14 @@ constexpr float CUT_THROTTLE_MARGIN_PCT = 1.5f;
 constexpr float CUT_PEDAL_MARGIN_PCT = 2.0f;      // Pedal gilt bis 2 Prozentpunkte über "leer" als losgelassen
 constexpr float CUT_THROTTLE_PER_1000RPM_PCT = 2.0f;  // Drosselklappe: Toleranz +2 Punkte je 1000 U/min über 1200
 constexpr float CUT_O2_MAX_V = 0.15f;             // Lambdasonde im Schub: unter 0,15 V (sonst um 0,45 V pendelnd)
+// Schub genauer (Etappe 1b, F7): Gang, Kupplung, Lambda-Alter, Einschaltverzug
+constexpr uint32_t CUT_O2_FRESH_MS = 500;         // Lambda zählt nur, wenn die Messung jünger als 0,5 s ist
+constexpr uint32_t CUT_ON_DELAY_MS = 400;         // Schub erst, wenn alles 0,4 s am Stück passt; aus sofort
+constexpr float CUT_GEAR_TOL = 0.05f;             // Tempo/Drehzahl höchstens 5 % neben einem gelernten Gang
+constexpr uint32_t CUT_SLIP_WINDOW_MS = 400;      // Drehzahl gegen Tempo: Vergleich mit einer Probe ≥ 0,4 s alt
+constexpr uint32_t CUT_SLIP_MAX_AGE_MS = 2500;    // ältere Proben zählen nicht (Lücke)
+constexpr float CUT_SLIP_TOL = 0.04f;             // k darf um 4 % wandern ...
+constexpr float CUT_SLIP_SPEED_STEP_KMH = 1.5f;   // ... plus eine Tempo-Stufe (ganze km/h vom Auto)
 
 // Selbstkalibrierung zwischen zwei Vollbetankungen (A7)
 constexpr float CAL_MIN_KM = 150.0f;

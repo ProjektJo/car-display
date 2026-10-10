@@ -56,6 +56,7 @@ void VehicleCalc::load(const Profile& p, const PersistState* saved, uint32_t now
   hasTripRecord_ = false;
   profileChanged_ = false;
   throttleClosed_ = NAN;
+  cut_.reset();
   engineOffSinceMs_ = 0;
   standstillSinceMs_ = 0;
   standstillSaved_ = false;
@@ -543,12 +544,27 @@ void VehicleCalc::step(const CarState& s, uint32_t nowMs, float dtS) {
   bool cut = false;
   float lph = NAN;
   if (engineOn) {
-    cut = fuel::isFuelCut(li.pidSupported(0x03), in, throttleClosed_);
+    // Schub mit Gang, Kupplung und Lambda-Alter (F7); die Lambda-Messung geht mit ihrem Alter hinein
+    fuel::CutDetector::In ci;
+    ci.in = in;
+    ci.hasFuelSys = li.pidSupported(0x03);
+    ci.throttleClosedPct = throttleClosed_;
+    if (s.o2V.t) {
+      ci.o2V = s.o2V.v;
+      ci.o2AgeMs = nowMs - s.o2V.t;
+    }
+    ci.rpmT = s.rpm.t;
+    ci.gears = profile_.gears;
+    ci.gearCount = profile_.gearCount;
+    cut = cut_.step(ci, nowMs);
     lph = cut ? 0.0f : fuel::rateLph(src, eng, in);
-  } else if (!std::isnan(in.rpm)) {
-    lph = 0.0f;
+  } else {
+    cut_.reset();
+    if (!std::isnan(in.rpm)) lph = 0.0f;
   }
   out_.fuelCut = cut;
+  out_.cutWatch = engineOn && cut_.watch();
+  cut_.describe(out_.cutWhy, sizeof(out_.cutWhy));
 
   const float dm = std::isnan(in.speedKmh) ? 0.0f : in.speedKmh / 3.6f * dtS * profile_.kmFactor;  // Meter
   const float dml = std::isnan(lph) ? 0.0f : lph / 3.6f * dtS;                                      // Milliliter

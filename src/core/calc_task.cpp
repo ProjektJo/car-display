@@ -138,6 +138,8 @@ void publish(const VehicleCalc::Outputs& o, uint32_t now, bool active) {
     put(s.fuelLph, o.instLph);
     put(s.fuelL100, o.instL100);
     s.fuelCut = active && o.fuelCut;
+    s.cutWatch = active && o.cutWatch;
+    snprintf(s.cutWhy, sizeof(s.cutWhy), "%s", active ? o.cutWhy : "");
     put(s.avg1, o.avg1);
     put(s.avg10, o.avg10);
     put(s.avg100, o.avg100);
